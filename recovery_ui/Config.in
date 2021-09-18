@@ -1,0 +1,9 @@
+menu "Recovery UI"
+
+config RECOVERY_UI
+	bool "Recovery UI"
+	select MONGOOSE
+	help
+	  Enable recovery ui for swupdate.
+
+endmenu

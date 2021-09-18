@@ -520,3 +520,4 @@ config ZSTD
 
 source parser/Config.in
 source handlers/Config.in
+source recovery_ui/Config.in

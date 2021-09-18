@@ -366,6 +366,7 @@ objs-y		:= core handlers
 libs-y		:= corelib mongoose parser suricatta bootloader fs
 bindings-y	:= bindings
 tools-y		:= tools
+recovery_ui-y := recovery_ui
 
 ipc-y		:= ipc
 ipc-lib 	:= $(patsubst %,%/built-in.o, $(ipc-y))
@@ -383,6 +384,11 @@ tools-objs	:= $(patsubst %,%/built-in.o, $(tools-y))
 tools-bins	:= $(patsubst $(srctree)/$(tools-y)/%.c,$(tools-y)/%,$(wildcard $(srctree)/$(tools-y)/*.c))
 tools-bins-unstr:= $(patsubst %,%_unstripped,$(tools-bins))
 tools-all	:= $(tools-objs)
+
+recovery_ui-dirs 	:= $(recovery_ui-y)
+recovery_ui-objs	:= $(patsubst %,%/built-in.o, $(recovery_ui-y))
+recovery_ui-bins	:= $(srctree)/$(recovery_ui-y)/recovery_ui
+recovery_ui-all	:= $(recovery_ui-objs)
 
 ifeq ($(HAVE_LUA),y)
 lua_swupdate	:= lua_swupdate.so.0.1
@@ -403,7 +409,7 @@ bindings-all	:= $(bindings-libs)
 	fi
 	@touch .cfg-sanity-check
 
-all: swupdate ${tools-bins} ${lua_swupdate}
+all: swupdate ${tools-bins} ${recovery_ui-bins} ${lua_swupdate}
 
 # Do modpost on a prelinked vmlinux. The finally linked vmlinux has
 # relevant sections renamed as per the linker script.
@@ -468,6 +474,10 @@ ${tools-bins}: ${swupdate-ipc-lib} ${tools-objs} ${swupdate-libs} .tools-built-i
 	@mv $@ $@_unstripped
 	$(call cmd,strip)
 
+${recovery_ui-bins}: ${swupdate-ipc-lib} ${recovery_ui-objs}
+	$(call if_changed,addon,$@.o)
+	$(call cmd,strip)
+
 install: all
 	install -d ${DESTDIR}/${BINDIR}
 	install -d ${DESTDIR}/${INCLUDEDIR}
@@ -476,6 +486,7 @@ install: all
 	for i in ${tools-bins};do \
 		install -m 755 $$i ${DESTDIR}/${BINDIR}; \
 	done
+	install -m 755 ${recovery_ui-bins} ${DESTDIR}/${BINDIR};
 	install -m 0644 $(srctree)/include/network_ipc.h ${DESTDIR}/${INCLUDEDIR}
 	install -m 0644 $(srctree)/include/swupdate_status.h ${DESTDIR}/${INCLUDEDIR}
 	install -m 0644 $(srctree)/include/progress_ipc.h ${DESTDIR}/${INCLUDEDIR}
@@ -502,6 +513,7 @@ test:
 # make sure no implicit rule kicks in
 $(sort $(swupdate-all)): $(swupdate-dirs) ;
 $(sort $(tools-all)): $(tools-dirs) ;
+$(sort $(recovery_ui-all)): $(recovery_ui-dirs) ;
 $(sort $(bindings-all)): $(bindings-dirs) ;
 $(sort $(ipc-lib)): $(ipc-dirs) ;
 
@@ -511,10 +523,12 @@ $(sort $(ipc-lib)): $(ipc-dirs) ;
 # make menuconfig etc.
 # Error messages still appears in the original language
 
-PHONY += $(swupdate-dirs) $(tools-dirs) $(bindings-dirs) $(ipc-dirs)
+PHONY += $(swupdate-dirs) $(tools-dirs) $(recovery_ui-dirs) $(bindings-dirs) $(ipc-dirs)
 $(swupdate-dirs): scripts
 	$(Q)$(MAKE) $(build)=$@
 $(tools-dirs): scripts
+	$(Q)$(MAKE) $(build)=$@
+$(recovery_ui-dirs): scripts
 	$(Q)$(MAKE) $(build)=$@
 $(bindings-dirs): scripts
 	$(Q)$(MAKE) $(build)=$@
@@ -534,6 +548,7 @@ CLEAN_FILES += swupdate swupdate_unstripped* lua_swupdate* libswupdate* ${tools-
 	$(patsubst %,%_unstripped,$(tools-bins)) \
 	$(patsubst %,%.out,$(tools-bins)) \
 	$(patsubst %,%.map,$(tools-bins)) \
+	${recovery_ui-bins} \
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_DIRS  += include/config include/generated
@@ -543,7 +558,7 @@ MRPROPER_FILES += .config .config.old tags TAGS cscope* GPATH GTAGS GRTAGS GSYMS
 #
 clean: rm-dirs  := $(CLEAN_DIRS)
 clean: rm-files := $(CLEAN_FILES)
-clean-dirs      := $(addprefix _clean_, $(swupdate-dirs) $(ipc-dirs) $(tools-dirs) $(bindings-dirs) scripts/acceptance-tests)
+clean-dirs      := $(addprefix _clean_, $(swupdate-dirs) $(ipc-dirs) $(tools-dirs) $(recovery_ui-dirs) $(bindings-dirs) scripts/acceptance-tests)
 
 PHONY += $(clean-dirs) clean archclean
 $(clean-dirs):
