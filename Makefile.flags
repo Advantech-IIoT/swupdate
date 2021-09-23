@@ -221,6 +221,9 @@ ifeq ($(CONFIG_BOOTLOADER_EBG),y)
 LDLIBS += ebgenv z
 endif
 
+## for recovery UI.
+LDLIBS += png drm
+
 # SWU forwarder
 ifneq ($(CONFIG_SWUFORWARDER_HANDLER),)
 LDLIBS += websockets uriparser

@@ -442,16 +442,43 @@ static GRSurface* drm_init(minui_backend* backend) {
 }
 
 static GRSurface* drm_flip(minui_backend* backend) {
-    int ret;
+	int ret;
+	fd_set fds;
+	time_t start, cur;
+	struct timeval v;
 
-    ret = drmModePageFlip(drm_fd, main_monitor_crtc->crtc_id,
-                          drm_surfaces[current_buffer]->fb_id, 0, NULL);
-    if (ret < 0) {
-        printf("drmModePageFlip failed ret=%d\n", ret);
-        return NULL;
-    }
-    current_buffer = 1 - current_buffer;
-    return &(drm_surfaces[current_buffer]->base);
+	ret = drmModePageFlip(drm_fd, main_monitor_crtc->crtc_id,
+				drm_surfaces[current_buffer]->fb_id, 0, NULL);
+	if (ret < 0) {
+		printf("drmModePageFlip failed ret=%d\n", ret);
+		return &(drm_surfaces[current_buffer]->base);
+	}
+
+	/* init variables */
+	srand(time(&start));
+	FD_ZERO(&fds);
+	memset(&v, 0, sizeof(v));
+
+	/* wait 1s for VBLANK or input events */
+	while (time(&cur) < start + 1) {
+		FD_SET(0, &fds);
+		FD_SET(drm_fd, &fds);
+		v.tv_sec = start + 1 - cur;
+
+		ret = select(drm_fd + 1, &fds, NULL, NULL, &v);
+		if (ret < 0) {
+			fprintf(stderr, "select() failed with %d: %m\n", errno);
+			break;
+		} else if (FD_ISSET(0, &fds)) {
+			fprintf(stderr, "exit due to user-input\n");
+			break;
+		} else if (FD_ISSET(drm_fd, &fds)) {
+			drmHandleEvent(drm_fd, NULL);
+		}
+	}
+
+	current_buffer = 1 - current_buffer;
+	return &(drm_surfaces[current_buffer]->base);
 }
 
 static void drm_exit(minui_backend* backend) {

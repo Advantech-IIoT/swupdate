@@ -58,7 +58,7 @@ void ui_set_background(int icon);
 //   portion - fraction of the progress bar the next operation will use
 //   seconds - expected time interval (progress bar moves at this minimum rate)
 void ui_show_progress(float portion, int seconds);
-void ui_set_progress2(int progress);
+void ui_show_progress2(int progress);
 void ui_set_progress(float fraction);  // 0.0 - 1.0 within the defined scope
 
 // Default allocation of progress bar segments to operations

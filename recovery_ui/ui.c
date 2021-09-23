@@ -111,36 +111,37 @@ static void draw_background_locked(gr_surface icon)
 // Should only be called with gUpdateMutex locked.
 static void draw_progress_locked()
 {
-    if (gProgressBarType == PROGRESSBAR_TYPE_NONE) return;
+	if (gProgressBarType == PROGRESSBAR_TYPE_NONE) return;
 
-    int iconHeight = gr_get_height(gBackgroundIcon[BACKGROUND_ICON_INSTALLING]);
-    int width = gr_get_width(gProgressBarEmpty);
-    int height = gr_get_height(gProgressBarEmpty);
+	int iconHeight = gr_get_height(gBackgroundIcon[BACKGROUND_ICON_INSTALLING]);
+	int width = gr_get_width(gProgressBarEmpty);
+	int height = gr_get_height(gProgressBarEmpty);
 
-    int dx = (gr_fb_width() - width)/2;
-    int dy = (3*gr_fb_height() + iconHeight - 2*height)/4;
+	int dx = (gr_fb_width() - width)/2;
+	int dy = (3*gr_fb_height() + iconHeight - 2*height)/4;
 
     // Erase behind the progress bar (in case this was a progress-only update)
-    gr_color(0, 0, 0, 255);
-    gr_fill(dx, dy, width, height);
+	gr_color(0, 0, 0, 255);
+	gr_fill(dx, dy, width, height);
 
-    if (gProgressBarType == PROGRESSBAR_TYPE_NORMAL) {
-        float progress = gProgressScopeStart + gProgress * gProgressScopeSize;
-        int pos = (int) (progress * width);
+	if (gProgressBarType == PROGRESSBAR_TYPE_NORMAL) {
+		float progress = gProgressScopeStart + gProgress * gProgressScopeSize;
+		progress = progress >= 1.0 ?  1.0 : progress;
+		int pos = (int) (progress * width);
 
-        if (pos > 0) {
-          gr_blit(gProgressBarFill, 0, 0, pos, height, dx, dy);
-        }
-        if (pos < width-1) {
-          gr_blit(gProgressBarEmpty, pos, 0, width-pos, height, dx+pos, dy);
-        }
-    }
+		if (pos > 0) {
+			gr_blit(gProgressBarFill, 0, 0, pos, height, dx, dy);
+		}
+		if (pos < width-1) {
+			gr_blit(gProgressBarEmpty, pos, 0, width-pos, height, dx+pos, dy);
+		}
+	}
 
-    if (gProgressBarType == PROGRESSBAR_TYPE_INDETERMINATE) {
-        static int frame = 0;
-        gr_blit(gProgressBarIndeterminate[frame], 0, 0, width, height, dx, dy);
-        frame = (frame + 1) % PROGRESSBAR_INDETERMINATE_STATES;
-    }
+	if (gProgressBarType == PROGRESSBAR_TYPE_INDETERMINATE) {
+		static int frame = 0;
+		gr_blit(gProgressBarIndeterminate[frame], 0, 0, width, height, dx, dy);
+		frame = (frame + 1) % PROGRESSBAR_INDETERMINATE_STATES;
+	}
 }
 
 static void draw_text_line(int row, const char* t) {
@@ -380,23 +381,43 @@ void ui_show_indeterminate_progress()
 
 void ui_show_progress(float portion, int seconds)
 {
-    if (!gr_draw)
-        return;
+	if (!gr_draw)
+		return;
 
-    pthread_mutex_lock(&gUpdateMutex);
-    gProgressBarType = PROGRESSBAR_TYPE_NORMAL;
-    gProgressScopeStart += gProgressScopeSize;
-    gProgressScopeSize = portion;
-    gProgressScopeTime = time(NULL);
-    gProgressScopeDuration = seconds;
-    gProgress = 0;
-    update_progress_locked();
-    pthread_mutex_unlock(&gUpdateMutex);
+	if (portion < 0.0) portion = 0.0;
+
+	pthread_mutex_lock(&gUpdateMutex);
+	gProgressBarType = PROGRESSBAR_TYPE_NORMAL;
+	gProgressScopeStart += gProgressScopeSize;
+	gProgressScopeStart = gProgressScopeStart > 1.0 ? 1.0 : gProgressScopeStart;
+	gProgressScopeSize = portion > 1.0 ? 1.0 : portion;
+	gProgressScopeTime = time(NULL);
+	gProgressScopeDuration = seconds;
+	gProgress = 0;
+	update_progress_locked();
+	pthread_mutex_unlock(&gUpdateMutex);
 }
 
-void ui_set_progress2(int progress){
-        float fraction = (float)progress;
-        ui_set_progress(fraction/100);
+void ui_show_progress2(int progress){
+	float fraction = ((float)progress)/100.0;
+
+	if (!gr_draw)
+		return;
+
+	if (fraction < 0.0) fraction = 0.0;
+	if (fraction > 1.0) fraction = 1.0;
+
+	if (fraction <= gProgressScopeStart)
+		return;
+
+	pthread_mutex_lock(&gUpdateMutex);
+	gProgressBarType = PROGRESSBAR_TYPE_NORMAL;
+	gProgressScopeStart = fraction;
+	gProgressScopeSize = 0.0;
+	gProgressScopeDuration = 0.0;
+	gProgress = 1.0;
+	update_progress_locked();
+	pthread_mutex_unlock(&gUpdateMutex);
 }
 
 void ui_set_progress(float fraction)

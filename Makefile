@@ -219,11 +219,12 @@ LINUXINCLUDE    := -Iinclude \
                    -include include/generated/autoconf.h
 
 KBUILD_CPPFLAGS :=
-KBUILD_CFLAGS   :=
+KBUILD_CFLAGS   := 
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__
 
+KBUILD_CFLAGS   += ${KCFLAGS}
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
 KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
@@ -475,7 +476,8 @@ ${tools-bins}: ${swupdate-ipc-lib} ${tools-objs} ${swupdate-libs} .tools-built-i
 	$(call cmd,strip)
 
 ${recovery_ui-bins}: ${swupdate-ipc-lib} ${recovery_ui-objs}
-	$(call if_changed,addon,$@.o)
+	$(call if_changed,addon,${recovery_ui-objs})
+	@mv $@ $@_unstripped
 	$(call cmd,strip)
 
 install: all
@@ -549,6 +551,9 @@ CLEAN_FILES += swupdate swupdate_unstripped* lua_swupdate* libswupdate* ${tools-
 	$(patsubst %,%.out,$(tools-bins)) \
 	$(patsubst %,%.map,$(tools-bins)) \
 	${recovery_ui-bins} \
+	$(patsubst %,%_unstripped,$(recovery_ui-bins)) \
+	$(patsubst %,%.out,$(recovery_ui-bins)) \
+	$(patsubst %,%.map,$(recovery_ui-bins)) \
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_DIRS  += include/config include/generated
