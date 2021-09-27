@@ -508,6 +508,7 @@ void *network_initializer(void *data)
 	inst.status = IDLE;
 	inst.software = software;
 
+	set_default_installer(&inst);
 	/* fork off the local dialogs and network service */
 	network_thread_id = start_thread(network_thread, &inst);
 
@@ -669,62 +670,4 @@ void *network_initializer(void *data)
 	}
 
 	pthread_exit((void *)0);
-}
-
-/*
- * Accessors to get information about an update, they are the interface
- * to the "inst" structure.
- */
-
-void get_install_swset(char *buf, size_t len)
-{
-
-	if (!buf)
-		return;
-
-	strncpy(buf, inst.software->parms.software_set, len - 1);
-
-}
-
-void get_install_running_mode(char *buf, size_t len)
-{
-
-	if (!buf)
-		return;
-
-	strncpy(buf, inst.software->parms.running_mode, len - 1);
-}
-
-/*
- * Retrieve additional info sent by the source
- * The data is not locked because it is retrieve
- * at different times
- */
-int get_install_info(sourcetype *source, char *buf, size_t len)
-{
-	len = min(len - 1, strlen(inst.req.info));
-	strncpy(buf, inst.req.info, len);
-	*source = inst.req.source;
-
-	return len;
-}
-
-void set_version_range(const char *minversion,
-		const char *maxversion, const char *current)
-{
-	if (minversion && strnlen(minversion, SWUPDATE_GENERAL_STRING_SIZE)) {
-		strlcpy(inst.software->minimum_version, minversion,
-			sizeof(inst.software->minimum_version));
-		inst.software->no_downgrading = true;
-	}
-	if (maxversion && strnlen(maxversion, SWUPDATE_GENERAL_STRING_SIZE)) {
-		strlcpy(inst.software->maximum_version, maxversion,
-			sizeof(inst.software->maximum_version));
-		inst.software->check_max_version = true;
-	}
-	if (current && strnlen(current, SWUPDATE_GENERAL_STRING_SIZE)) {
-		strlcpy(inst.software->current_version, current,
-			sizeof(inst.software->current_version));
-		inst.software->no_reinstalling = true;
-	}
 }

@@ -109,6 +109,9 @@ static struct option long_options[] = {
 #ifdef CONFIG_WEBSERVER
 	{"webserver", required_argument, NULL, 'w'},
 #endif
+#ifdef CONFIG_RECOVERY_UI
+	{"gui", no_argument, NULL, 'g'},
+#endif
 	{"check", no_argument, NULL, 'c'},
 	{"postupdate", required_argument, NULL, 'p'},
 	{"preupdate", required_argument, NULL, 'P'},
@@ -179,6 +182,10 @@ static void usage(char *programname)
 	fprintf(stdout,
 		" -w, --webserver [OPTIONS]      : Parameters to be passed to webserver\n");
 	mongoose_print_help();
+#endif
+#ifdef CONFIG_RECOVERY_UI
+	fprintf(stdout,
+		" -g, --gui      : enable recovery gui\n");
 #endif
 }
 
@@ -404,6 +411,9 @@ int main(int argc, char **argv)
 	int opt_i = 0;
 	int opt_e = 0;
 	bool opt_c = false;
+#ifdef CONFIG_RECOVERY_UI
+	bool opt_g = false;
+#endif
 	char image_url[MAX_URL];
 	char main_options[256];
 	unsigned int public_key_mandatory = 0;
@@ -445,6 +455,9 @@ int main(int argc, char **argv)
 #endif
 #ifdef CONFIG_WEBSERVER
 	strcat(main_options, "w:");
+#endif
+#ifdef CONFIG_RECOVERY_UI
+	strcat(main_options, "g");
 #endif
 #ifdef CONFIG_HW_COMPATIBILITY
 	strcat(main_options, "H:");
@@ -675,6 +688,11 @@ int main(int argc, char **argv)
 			free(weboptions);
 			break;
 #endif
+#ifdef CONFIG_RECOVERY_UI
+		case 'g':
+			opt_g = true;
+			break;
+#endif
 		case 'c':
 			opt_c = true;
 			break;
@@ -805,6 +823,14 @@ int main(int argc, char **argv)
 
 	/* wait for threads to be done before starting children */
 	wait_threads_ready();
+
+#ifdef CONFIG_RECOVERY_UI
+	/* Start local GUI  thread.*/
+	if(opt_g){
+		INFO("Start Recovery UI.");
+		start_recoveryUI();
+	}
+#endif
 
 	/* Start embedded web server */
 #if defined(CONFIG_MONGOOSE)

@@ -27,12 +27,82 @@
 #include "util.h"
 #include "swupdate.h"
 #include "installer.h"
+#include "installer_priv.h"
 #include "handler.h"
 #include "cpiohdr.h"
 #include "parsers.h"
 #include "bootloader.h"
 #include "progress.h"
 #include "pctl.h"
+
+static struct installer *instp = NULL;
+
+void set_default_installer(struct installer *inst){
+	instp = inst;
+}
+
+/*
+ * Accessors to get information about an update, they are the interface
+ * to the "inst" structure.
+ */
+void get_install_swset(char *buf, size_t len)
+{
+
+	if (!buf || !instp)
+		return;
+
+	strncpy(buf, instp->software->parms.software_set, len - 1);
+
+}
+
+void get_install_running_mode(char *buf, size_t len)
+{
+
+	if (!buf || !instp)
+		return;
+
+	strncpy(buf, instp->software->parms.running_mode, len - 1);
+}
+
+/*
+ * Retrieve additional info sent by the source
+ * The data is not locked because it is retrieve
+ * at different times
+ */
+int get_install_info(sourcetype *source, char *buf, size_t len)
+{
+	if (!instp)
+		return;
+
+	len = min(len - 1, strlen(instp->req.info));
+	strncpy(buf, instp->req.info, len);
+	*source = instp->req.source;
+
+	return len;
+}
+
+void set_version_range(const char *minversion,
+		const char *maxversion, const char *current)
+{
+	if (!instp)
+		return;
+
+	if (minversion && strnlen(minversion, SWUPDATE_GENERAL_STRING_SIZE)) {
+		strlcpy(instp->software->minimum_version, minversion,
+			sizeof(instp->software->minimum_version));
+		instp->software->no_downgrading = true;
+	}
+	if (maxversion && strnlen(maxversion, SWUPDATE_GENERAL_STRING_SIZE)) {
+		strlcpy(instp->software->maximum_version, maxversion,
+			sizeof(instp->software->maximum_version));
+		instp->software->check_max_version = true;
+	}
+	if (current && strnlen(current, SWUPDATE_GENERAL_STRING_SIZE)) {
+		strlcpy(instp->software->current_version, current,
+			sizeof(instp->software->current_version));
+		instp->software->no_reinstalling = true;
+	}
+}
 
 /*
  * function returns:

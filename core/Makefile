@@ -26,4 +26,6 @@ obj-y += swupdate.o \
 	 artifacts_versions.o \
 	 swupdate_dict.o \
 	 semver.o \
+	 recovery.o \
+     recovery_ui.o \
 	 strlcpy.o

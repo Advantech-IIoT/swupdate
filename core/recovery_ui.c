@@ -17,8 +17,10 @@
 #include <pthread.h>
 #include <getopt.h>
 
-#include <progress_ipc.h>
-#include <recovery_ui.h>
+#include "progress_ipc.h"
+#include "recovery_ui.h"
+#include "pctl.h"
+
 
 #define PSPLASH_MSG_SIZE	64
 
@@ -39,6 +41,7 @@
 #define CYAN		6
 #define	WHITE		7
 
+static int connfd = -1;
 static bool silent = false;
 
 static void resetterm(void)
@@ -71,42 +74,23 @@ static void fill_progress_bar(char *bar, size_t size, unsigned int percent)
 	memset(&bar[filled_len], '-', remain);
 }
 
-int main(int argc, char **argv)
-{
-	int connfd;
+static void recoveryUI_loop_thread(void* data){
 	struct progress_msg msg;
 	unsigned int curstep = 0;
 	unsigned int percent = 0;
 	const int bar_len = 60;
 	char bar[bar_len+1];
-	int opt_r = 0;
 	int ret;
 	bool wait_update = true;
 
-	ui_init();
-    ui_set_background(BACKGROUND_ICON_INSTALLING);
-	ui_show_text(1);
-
-	connfd = -1;
 	while (1) {
-		if (connfd < 0) {
-			connfd = progress_ipc_connect(true);
-		}
-		/*
-		 * if still fails, try later
-		 */
-		if (connfd < 0) {
-			sleep(1);
-			continue;
-		}
-
 		if (progress_ipc_receive(&connfd, &msg) <= 0) {
+			connfd = progress_ipc_connect(true);
 			continue;
 		}
 
-		/*
-		 * Wait update Start
-		 */
+		printf("msg.cur_step = %d \r\n", msg.cur_step);
+		/* Wait update Start*/
 		if (wait_update) {
 			if (msg.status == START || msg.status == RUN) {
 				ui_reset_progress();
@@ -133,6 +117,7 @@ int main(int argc, char **argv)
 				wait_update = false;
 			}
 		}
+
 		/*
 		 * Be sure that string in message are Null terminated
 		 */
@@ -142,33 +127,34 @@ int main(int argc, char **argv)
 			}
 			msg.info[msg.infolen] = '\0';
 		}
-		
+
 		if (!wait_update) {
 			if (msg.cur_step > 0) {
 				msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
-				
+
 				if (msg.cur_step != curstep){
 					ui_reset_progress();
 					ui_print("[Step %d/%d] %s update ...\n", msg.cur_step, msg.nsteps, msg.cur_image);
 					curstep = msg.cur_step;
 				}
+
 				fill_progress_bar(bar, sizeof(bar), msg.cur_percent);
 				ui_show_progress2(msg.cur_percent);
 				printf("[ %.*s ] %d of %d %d%% (%s)\r", bar_len, bar, msg.cur_step, 
 					msg.nsteps, msg.cur_percent, msg.cur_image);
+				fflush(stdout);
 			}
 		}
-		
+
 		switch (msg.status) {
 		case SUCCESS:
 		case FAILURE:
 			if(msg.status != SUCCESS){
 				ui_set_background(BACKGROUND_ICON_ERROR);
 			}
-
+	
 			ui_print("%s !\n", msg.status == SUCCESS
-							  ? "SUCCESS"
-							  : "FAILURE");
+							  ? "SUCCESS" : "FAILURE");
 			wait_update = true;
 			break;
 		case DONE:
@@ -182,4 +168,27 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
+}
+
+/*
+*  start_recoveryUI:
+*  start a thread to refresh the recovery UI.
+*  we need to wait the progress connection is
+*  okay.
+*/
+void start_recoveryUI(void){
+	/* ui init. */
+	ui_init();
+    ui_set_background(BACKGROUND_ICON_INSTALLING);
+	ui_show_text(1);
+
+	/* wait for connect to the progress thread. */
+	connfd = progress_ipc_connect(true);
+	if (connfd < 0) {
+		printf("open local socket with err! \r\n");
+		return;
+	}
+
+	//start recovery UI loop thread.
+	start_thread(recoveryUI_loop_thread, NULL);
 }

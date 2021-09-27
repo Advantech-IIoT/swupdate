@@ -21,4 +21,5 @@ struct installer {
 	struct swupdate_cfg *software;
 };
 
+void set_default_installer(struct installer *inst);
 #endif

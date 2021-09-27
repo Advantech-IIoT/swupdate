@@ -186,5 +186,11 @@ struct swupdate_cfg {
 int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start);
 struct swupdate_cfg *get_swupdate_cfg(void);
 void free_image(struct img_type *img);
+/*
+* Maybe it's best that no args with do recovery, and we will fix this
+* in future.
+*/
+int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software);
+void start_recoveryUI(void);
 
 #endif
