@@ -18,8 +18,9 @@ swupdate_file_t check_if_required(struct imglist *list, struct filehdr *pfdh,
 				const char *destdir,
 				struct img_type **pimg);
 int install_images(struct swupdate_cfg *sw);
+int install_images_from_fd(int fd, struct swupdate_cfg *sw);
 int install_single_image(struct img_type *img, bool dry_run);
-int install_from_file(const char *filename, bool check);
+int install_from_file(const char *filename, bool check, struct swupdate_cfg *software);
 int postupdate(struct swupdate_cfg *swcfg, const char *info);
 int preupdatecmd(struct swupdate_cfg *swcfg);
 void cleanup_files(struct swupdate_cfg *software);

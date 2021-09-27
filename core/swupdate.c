@@ -865,7 +865,7 @@ int main(int argc, char **argv)
 	}
 
 	if (opt_i) {
-		result = install_from_file(fname, opt_c);
+		result = install_from_file(fname, opt_c, &swcfg);
 		cleanup_files(&swcfg);
 	}
 

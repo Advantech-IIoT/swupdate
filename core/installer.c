@@ -367,6 +367,77 @@ int install_images(struct swupdate_cfg *sw)
 	return ret;
 }
 
+/*
+* We need a install images from file stream 
+*/
+int install_images_from_fd(int fd, struct swupdate_cfg *sw)
+{
+	int ret;
+	struct img_type *img;
+	const char* TMPDIR = get_tmpdir();
+	bool dry_run = sw->parms.dry_run;
+
+	/* Extract all scripts, preinstall scripts must be run now */
+	const char* tmpdir_scripts = get_tmpdirscripts();
+	ret = extract_scripts(&sw->scripts);
+	ret |= extract_scripts(&sw->bootscripts);
+	if (ret) {
+		ERROR("extracting script to %s failed", tmpdir_scripts);
+		return ret;
+	}
+
+	/* Scripts must be run before installing images */
+	if (!dry_run) {
+		ret = run_prepost_scripts(&sw->scripts, PREINSTALL);
+		if (ret) {
+			ERROR("execute preinstall scripts failed");
+			return ret;
+		}
+	}
+
+	/* Install all images */
+	LIST_FOREACH(img, &sw->images, next) {
+		TRACE("Installing %s, %lld bytes", img->fname, img->size);
+		
+		img->fdin = fd;
+		if(img->offset > 0) 
+			lseek(fd, img->offset, SEEK_SET);
+		
+		if (install_single_image(img, dry_run)) {
+			ERROR("Error installing %s", img->fname);
+			return -1;
+		}
+	}
+	
+	TRACE("END INSTALLING");
+	
+	/*
+	 * Skip scripts in dry-run mode
+	 */
+	if (dry_run) {
+		return ret;
+	}
+
+	ret = run_prepost_scripts(&sw->scripts, POSTINSTALL);
+	if (ret) {
+		ERROR("execute postinstall scripts failed");
+		return ret;
+	}
+
+	if (!LIST_EMPTY(&sw->bootloader)) {
+		char* bootscript = alloca(strlen(TMPDIR)+strlen(BOOT_SCRIPT_SUFFIX)+1);
+		sprintf(bootscript, "%s%s", TMPDIR, BOOT_SCRIPT_SUFFIX);
+		ret = update_bootloader_env(sw, bootscript);
+		if (ret) {
+			return ret;
+		}
+	}
+
+	ret |= run_prepost_scripts(&sw->bootscripts, POSTINSTALL);
+
+	return ret;
+}
+
 static void remove_sw_file(char __attribute__ ((__unused__)) *fname)
 {
 #ifndef CONFIG_NOCLEANUP

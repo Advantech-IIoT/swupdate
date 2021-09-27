@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/cdefs.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -467,10 +468,10 @@ static GRSurface* drm_flip(minui_backend* backend) {
 
 		ret = select(drm_fd + 1, &fds, NULL, NULL, &v);
 		if (ret < 0) {
-			fprintf(stderr, "select() failed with %d: %m\n", errno);
+			//fprintf(stderr, "select() failed with %d: %m\n", errno);
 			break;
 		} else if (FD_ISSET(0, &fds)) {
-			fprintf(stderr, "exit due to user-input\n");
+			//fprintf(stderr, "exit due to user-input\n");
 			break;
 		} else if (FD_ISSET(drm_fd, &fds)) {
 			drmHandleEvent(drm_fd, NULL);

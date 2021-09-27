@@ -41,17 +41,6 @@
 
 static bool silent = false;
 
-void printf_ui_text(const char *fmt, ...) {
-	va_list args;
-
-	va_start(args, fmt);
-    fprintf(stdout, fmt,  args);
-	ui_print(fmt, args);
-    va_end(args);
-
-	fflush(stdout);
-}
-
 static void resetterm(void)
 {
 	if (!silent)
@@ -96,7 +85,7 @@ int main(int argc, char **argv)
 
 	ui_init();
     ui_set_background(BACKGROUND_ICON_INSTALLING);
-	ui_reset_progress();
+	ui_show_text(1);
 
 	connfd = -1;
 	while (1) {
@@ -120,31 +109,30 @@ int main(int argc, char **argv)
 		 */
 		if (wait_update) {
 			if (msg.status == START || msg.status == RUN) {
-				ui_show_text(1);
-				printf_ui_text("Update started !\n");
-				printf_ui_text("Interface:  \n");
+				ui_reset_progress();
+				ui_print("Update started !\n");
+				ui_print("Interface:  ");
 				switch (msg.source) {
 				case SOURCE_UNKNOWN:
-					printf_ui_text("UNKNOWN\n\n");
+					ui_print("UNKNOWN\n");
 					break;
 				case SOURCE_WEBSERVER:
-					printf_ui_text("WEBSERVER\n\n");
+					ui_print("WEBSERVER\n");
 					break;
 				case SOURCE_SURICATTA:
-					printf_ui_text("BACKEND\n\n");
+					ui_print("BACKEND\n");
 					break;
 				case SOURCE_DOWNLOADER:
-					printf_ui_text("DOWNLOADER\n\n");
+					ui_print("DOWNLOADER\n");
 					break;
 				case SOURCE_LOCAL:
-					printf_ui_text("LOCAL\n\n");
+					ui_print("LOCAL\n");
 					break;
 				}
 				curstep = 0;
 				wait_update = false;
 			}
 		}
-
 		/*
 		 * Be sure that string in message are Null terminated
 		 */
@@ -153,47 +141,42 @@ int main(int argc, char **argv)
 				msg.infolen = sizeof(msg.info) - 1;
 			}
 			msg.info[msg.infolen] = '\0';
-			printf_ui_text("INFO : %s\r", msg.info);
 		}
-		msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
-
-
+		
 		if (!wait_update) {
-
 			if (msg.cur_step > 0) {
-				if ((msg.cur_step != curstep) && (curstep != 0)){
+				msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
+				
+				if (msg.cur_step != curstep){
 					ui_reset_progress();
-					printf_ui_text("\n");
+					ui_print("[Step %d/%d] %s update ...\n", msg.cur_step, msg.nsteps, msg.cur_image);
+					curstep = msg.cur_step;
 				}
 				fill_progress_bar(bar, sizeof(bar), msg.cur_percent);
-
-				ui_set_progress2(msg.cur_percent);
-				printf_ui_text("[ %.*s ] %d of %d %d%% (%s), dwl %d%% of %llu bytes\r",
-					bar_len,
-					bar,
-					msg.cur_step, msg.nsteps, msg.cur_percent,
-					msg.cur_image, msg.dwl_percent, msg.dwl_bytes);
-
-				curstep = msg.cur_step;
+				ui_show_progress2(msg.cur_percent);
+				printf("[ %.*s ] %d of %d %d%% (%s)\r", bar_len, bar, msg.cur_step, 
+					msg.nsteps, msg.cur_percent, msg.cur_image);
 			}
 		}
-
+		
 		switch (msg.status) {
 		case SUCCESS:
 		case FAILURE:
 			if(msg.status != SUCCESS){
 				ui_set_background(BACKGROUND_ICON_ERROR);
 			}
-			textcolor(BRIGHT, GREEN, BLACK);
-			printf_ui_text("\n%s !\n", msg.status == SUCCESS
+
+			ui_print("%s !\n", msg.status == SUCCESS
 							  ? "SUCCESS"
 							  : "FAILURE");
-			resetterm();
-			ui_show_text(0);
 			wait_update = true;
 			break;
 		case DONE:
-			printf_ui_text("\nDONE.\n\n");
+			ui_print("DONE.\n");
+			sleep(1);
+			if (system("reboot -f") < 0) { /* It should never happen */
+				printf("Please reset the board.\n");
+			}
 			break;
 		default:
 			break;
