@@ -19,6 +19,7 @@
 void swupdate_progress_init(unsigned int nsteps);
 void swupdate_progress_update(unsigned int perc);
 void swupdate_progress_inc_step(char *image, char *handler_name);
+void swupdate_progress_on_step0(char *image);
 void swupdate_progress_step_completed(void);
 void swupdate_progress_end(RECOVERY_STATUS status);
 void swupdate_progress_done(const char *info);

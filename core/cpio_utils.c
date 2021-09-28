@@ -557,21 +557,19 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 		if (ret == 0) {
 			break;
 		}
-		if (skip_file) {
-			continue;
+		if (!skip_file) {
+			len = ret;
+			/*
+			* If there is no enough place,
+			* returns an error and close the output file that
+			* results corrupted. This lets the cleanup routine
+			* to remove it
+			*/
+			if (callback(out, buffer, len) < 0) {
+				ret = -ENOSPC;
+				goto copyfile_exit;
+			}
 		}
-		len = ret;
-		/*
-		 * If there is no enough place,
-		 * returns an error and close the output file that
-		 * results corrupted. This lets the cleanup routine
-		 * to remove it
-		 */
-		if (callback(out, buffer, len) < 0) {
-			ret = -ENOSPC;
-			goto copyfile_exit;
-		}
-
 		percent = (unsigned)(100ULL * (nbytes - input_state.nbytes) / nbytes);
 		if (percent != prevpercent) {
 			prevpercent = percent;

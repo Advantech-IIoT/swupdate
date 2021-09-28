@@ -173,6 +173,18 @@ void swupdate_progress_inc_step(char *image, char *handler_name)
 	pthread_mutex_unlock(&pprog->lock);
 }
 
+void swupdate_progress_on_step0(char *image)
+{
+	struct swupdate_progress *pprog = &progress;
+	pthread_mutex_lock(&pprog->lock);
+	pprog->msg.cur_percent = 0;
+	strlcpy(pprog->msg.cur_image, image, sizeof(pprog->msg.cur_image));
+	pprog->step_running = true;
+	pprog->msg.status = RUN;
+	send_progress_msg();
+	pthread_mutex_unlock(&pprog->lock);
+}
+
 void swupdate_progress_step_completed(void)
 {
 	struct swupdate_progress *pprog = &progress;

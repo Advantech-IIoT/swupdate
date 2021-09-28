@@ -74,12 +74,13 @@ static void fill_progress_bar(char *bar, size_t size, unsigned int percent)
 	memset(&bar[filled_len], '-', remain);
 }
 
-static void recoveryUI_loop_thread(void* data){
+static void* recoveryUI_loop_thread(void* data){
 	struct progress_msg msg;
 	unsigned int curstep = 0;
 	unsigned int percent = 0;
 	const int bar_len = 60;
 	char bar[bar_len+1];
+	char tmp_image[256]={0};
 	int ret;
 	bool wait_update = true;
 
@@ -89,7 +90,6 @@ static void recoveryUI_loop_thread(void* data){
 			continue;
 		}
 
-		printf("msg.cur_step = %d \r\n", msg.cur_step);
 		/* Wait update Start*/
 		if (wait_update) {
 			if (msg.status == START || msg.status == RUN) {
@@ -115,6 +115,7 @@ static void recoveryUI_loop_thread(void* data){
 				}
 				curstep = 0;
 				wait_update = false;
+				ui_print("Checking....\n");
 			}
 		}
 
@@ -129,21 +130,44 @@ static void recoveryUI_loop_thread(void* data){
 		}
 
 		if (!wait_update) {
-			if (msg.cur_step > 0) {
-				msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
+			msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
 
+			if (msg.cur_step > 0) {
 				if (msg.cur_step != curstep){
 					ui_reset_progress();
+					if (0 == curstep) 
+						ui_print("Updating....\n");
+
 					ui_print("[Step %d/%d] %s update ...\n", msg.cur_step, msg.nsteps, msg.cur_image);
 					curstep = msg.cur_step;
 				}
-
-				fill_progress_bar(bar, sizeof(bar), msg.cur_percent);
-				ui_show_progress2(msg.cur_percent);
-				printf("[ %.*s ] %d of %d %d%% (%s)\r", bar_len, bar, msg.cur_step, 
-					msg.nsteps, msg.cur_percent, msg.cur_image);
-				fflush(stdout);
+			}else{
+				if (strncmp(tmp_image, msg.cur_image, strlen(msg.cur_image) + 1) != 0 ){	
+					ui_reset_progress();
+					ui_print("[Step %d/%d] %s checking ...\n", msg.cur_step, msg.nsteps, msg.cur_image);
+					curstep = msg.cur_step;
+					strncpy(tmp_image, msg.cur_image, sizeof(tmp_image));
+				}
 			}
+
+			if (0 == curstep) {
+				if((msg.cur_percent % 10) != 0 ) 
+					continue;
+			}else {
+				if(msg.cur_percent % 2 ) 
+					continue;
+			}
+
+			if(msg.cur_percent == percent)
+				continue;
+
+			//refresh  the progress bar.
+			fill_progress_bar(bar, sizeof(bar), msg.cur_percent);
+			ui_show_progress2(msg.cur_percent);
+			printf("[ %.*s ] %d of %d %d%% (%s)\r", bar_len, bar, msg.cur_step, 
+				msg.nsteps, msg.cur_percent, msg.cur_image);
+			fflush(stdout);
+			percent = msg.cur_percent;
 		}
 
 		switch (msg.status) {
@@ -163,6 +187,7 @@ static void recoveryUI_loop_thread(void* data){
 			if (system("reboot -f") < 0) { /* It should never happen */
 				printf("Please reset the board.\n");
 			}
+			return NULL;
 			break;
 		default:
 			break;

@@ -136,7 +136,7 @@ static int do_image_parse(int fd, unsigned long *offset, struct swupdate_cfg *so
 		return -1;
 	}
 
-	return 0;			
+	return 0;
 }
 
 //do image checksum and setting
@@ -146,13 +146,13 @@ static int do_image_check(int fd, unsigned long *offset, struct swupdate_cfg *so
 	uint32_t checksum;
 	struct filehdr fdh;
 	struct img_type* img;
-	
+
 	while(1){
 		if (extract_cpio_header(fd, &fdh, offset)) {
 			ERROR("CPIO HEADER");
 			return -1;
 		}
-	
+
 		if (strcmp("TRAILER!!!", fdh.filename) == 0) {
 			/*
 			* Keep reading the cpio padding, if any, up
@@ -195,6 +195,8 @@ static int do_image_check(int fd, unsigned long *offset, struct swupdate_cfg *so
 		}else {
 			fdout = -1;	
 			skip_file = 1;
+			/* do  image check process. */
+			swupdate_progress_on_step0(fdh.filename);
 		}
 
 		if (copyfile(fd, &fdout, fdh.size, offset, 0, skip_file, 
@@ -209,7 +211,7 @@ static int do_image_check(int fd, unsigned long *offset, struct swupdate_cfg *so
 
 		if(fdout > 0) close(fdout);
 	}
-	
+
 	return 0;
 }
 
@@ -227,7 +229,6 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 	}
 	notify(RUN, RECOVERY_NO_ERROR, INFOLEVEL, "Installation in progress");
 
-	
 	ret = install_images_from_fd(fd, software);
 	if (ret != 0) {
 		if (!software->parms.dry_run && software->bootloader_transaction_marker) {
@@ -292,7 +293,7 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 	const char* TMPDIR = get_tmpdir();
 	bool encrypted_sw_desc = false;
 	struct swupdate_request req;
-	
+
 	TRACE("Software update started");
 	memset(&inst, 0, sizeof(inst));
 	inst.fd = fd;
@@ -304,9 +305,9 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 	// infos to UI progress.
 	swupdate_prepare_req(&inst.req);
 	inst.req.source = SOURCE_LOCAL;
-	
+
 	software->parms.dry_run = dry_run;
-	
+
 	/* Create directories for scripts/datadst */
 	swupdate_create_directory(SCRIPTS_DIR_SUFFIX);
 	swupdate_create_directory(DATADST_DIR_SUFFIX);
