@@ -270,7 +270,16 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 static void do_finish_install(int fd, struct swupdate_cfg *software){
 	//report the result.
 	swupdate_progress_end(inst.last_install);
-	endupdate(inst.last_install);
+	//run post-up command.
+	if (software) {
+		if (software->parms.dry_run) {
+			DEBUG("Dry run, skipping Post-update command");
+		} else {
+			DEBUG("Running Post-update command");
+			run_system_cmd(software->postupdatecmd);
+		}
+	}
+	swupdate_progress_done(NULL);
 	inst.status = IDLE;
 
 	/* release temp files we may have created */

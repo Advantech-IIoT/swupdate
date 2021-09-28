@@ -29,6 +29,8 @@ pthread_t start_thread(void *(* start_routine) (void *), void *arg);
 
 void thread_ready(void);
 void wait_threads_ready(void);
+void UIthread_finished(void);
+void wait_UIthread_finished(void);
 
 typedef int (*swupdate_process)(const char *cfgname, int argc, char **argv);
 

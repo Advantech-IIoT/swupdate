@@ -129,7 +129,7 @@ static void* recoveryUI_loop_thread(void* data){
 			msg.info[msg.infolen] = '\0';
 		}
 
-		if (!wait_update) {
+		if (!wait_update && (msg.status == PROGRESS)) {
 			msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
 
 			if (msg.cur_step > 0) {
@@ -154,7 +154,7 @@ static void* recoveryUI_loop_thread(void* data){
 				if((msg.cur_percent % 10) != 0 ) 
 					continue;
 			}else {
-				if(msg.cur_percent % 2 ) 
+				if((msg.cur_percent % 5) != 0 ) 
 					continue;
 			}
 
@@ -184,11 +184,11 @@ static void* recoveryUI_loop_thread(void* data){
 		case DONE:
 			ui_print("DONE.\n");
 			sleep(1);
+			UIthread_finished();
 			if (system("reboot -f") < 0) { /* It should never happen */
 				printf("Please reset the board.\n");
 			}
 			return NULL;
-			break;
 		default:
 			break;
 		}

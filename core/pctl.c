@@ -58,6 +58,31 @@ static int threads_towait = 0;
 static pthread_mutex_t threads_towait_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t threads_towait_cond = PTHREAD_COND_INITIALIZER;
 
+static pthread_mutex_t ui_thread_towait_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t ui_thread_towait_cond = PTHREAD_COND_INITIALIZER;
+
+/*
+ * ui threads should signal they are ready if internal subprocesses
+ * can be spawned after them
+ */
+void UIthread_finished(void)
+{
+	pthread_mutex_lock(&ui_thread_towait_lock);
+	pthread_cond_broadcast(&ui_thread_towait_cond);
+	pthread_mutex_unlock(&ui_thread_towait_lock);
+}
+
+/*
+ * Wait for ui threads to have signaled they're finished
+ */
+void wait_UIthread_finished(void)
+{
+	pthread_mutex_lock(&ui_thread_towait_lock);
+	pthread_cond_wait(&ui_thread_towait_cond, &ui_thread_towait_lock);
+	pthread_mutex_unlock(&ui_thread_towait_lock);
+}
+
+
 #if defined(__linux__)
 static void parent_dead_handler(int __attribute__ ((__unused__)) dummy)
 {

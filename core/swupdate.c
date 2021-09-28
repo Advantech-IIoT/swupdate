@@ -895,6 +895,14 @@ int main(int argc, char **argv)
 		cleanup_files(&swcfg);
 	}
 
+#ifdef CONFIG_RECOVERY_UI
+	/* Start local GUI  thread.*/
+	if(opt_g){
+		wait_UIthread_finished();
+	}
+#endif
+
+
 #ifdef CONFIG_SYSTEMD
 	if (sd_booted()) {
 		sd_notify(0, "READY=1");
