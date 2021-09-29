@@ -255,7 +255,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				 */
 				if (!installed_directly) {
 					if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-						bootloader_env_set(BOOTVAR_TRANSACTION, get_state_string(STATE_IN_PROGRESS));
+						bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(STATE_IN_PROGRESS));
 					}
 					installed_directly = true;
 				}
@@ -607,14 +607,14 @@ void *network_initializer(void *data)
 			 * initiated an update
 			 */
 			if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-				bootloader_env_set(BOOTVAR_TRANSACTION, get_state_string(STATE_IN_PROGRESS));
+				bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(STATE_IN_PROGRESS));
 			}
 
 			notify(RUN, RECOVERY_NO_ERROR, INFOLEVEL, "Installation in progress");
 			ret = install_images(software);
 			if (ret != 0) {
 				if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-					bootloader_env_set(BOOTVAR_TRANSACTION, get_state_string(STATE_FAILED));
+					bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(STATE_FAILED));
 				}
 				notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
 				inst.last_install = FAILURE;
@@ -629,7 +629,7 @@ void *network_initializer(void *data)
 				 * that it is not required to start recovery again
 				 */
 				if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-					bootloader_env_unset(BOOTVAR_TRANSACTION);
+					bootloader_env_unset(BOOTVAR_TRANSSTATUS);
 				}
 				if (!software->parms.dry_run
 				    && software->bootloader_state_marker
