@@ -22,6 +22,11 @@
 #include "parsers.h"
 #include "swupdate.h"
 #include "state.h"
+#ifdef CONFIG_MTD
+#include "flash.h"
+#endif
+#include "progress.h"
+#include "bootloader.h"
 
 enum {
 	IMAGE_EXTRACT_DESCRIPTION,
@@ -31,8 +36,38 @@ enum {
 };
 
 static struct installer inst;
-static char buf[16 * 1024];
 
+void set_update_mode(char *image, bool is_reboot, bool gui_enabled, bool web_enabled){
+	char commond[1024] = {0};
+	const char* swupdatebin = "/usr/bin/swupdate";
+	char * web_args= "--document-root=/www";
+
+	if(image != NULL){
+		if(gui_enabled)
+			sprintf(commond, "%s\n-g\n--image=%s\n", swupdatebin, image);
+		else
+			sprintf(commond, "%s\n--image=%s\n", swupdatebin, image);
+	}else{
+		if(web_enabled){
+			if(gui_enabled)
+				sprintf(commond, "%s\n-g\n--webserver=%s\n", swupdatebin, web_args);
+			else
+				sprintf(commond, "%s\n--webserver=%s\n", swupdatebin, web_args);
+		}
+	}
+
+	//Set system enter update/recovery mode.
+	bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(STATE_IN_PROGRESS));
+	bootloader_env_set(BOOTVAR_TRANSACTION, commond);
+
+	printf("Reboot will enter recovery\r\n");
+	printf("recovery_command = %s \r\n", commond);
+	printf("[Done!]\r\n");
+
+	if(is_reboot){
+		system("reboot -f");
+	}
+}
 static struct img_type* find_image_type(struct swupdate_cfg *software, struct filehdr *pfdh){
 	struct img_type *img;
 	struct imglist *list[] = {&software->images,
@@ -48,24 +83,6 @@ static struct img_type* find_image_type(struct swupdate_cfg *software, struct fi
 	}
 
 	return NULL;
-}
-
-/*
- * this is called at the end reporting the status
- * of the upgrade and running any post-update actions
- * if successful
- */
-static void endupdate(RECOVERY_STATUS status)
-{
-	INFO("Swupdate %s\n",
-		status == FAILURE ? "*failed* !" :
-			"was successful !");
-
-	if (status == SUCCESS) {
-		ipc_message msg;
-		msg.data.procmsg.len = 0;
-		ipc_postupdate(&msg);
-	}
 }
 
 static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, bool encrypted)
@@ -221,7 +238,7 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 	TRACE("Valid image found: copying to FLASH");
 
 	/*
-	* If an image is loaded, the install must be successful. 
+	* If an image is loaded, the install must be successful.
 	* Set we have initiated an update
 	*/
 	if (!software->parms.dry_run && software->bootloader_transaction_marker) {
@@ -237,6 +254,7 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 
 		notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
 		inst.last_install = FAILURE;
+		inst.last_error = ERROR_INSTALL_FAILED;
 
 		if (!software->parms.dry_run
 				&& software->bootloader_state_marker
@@ -250,8 +268,9 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 		*/
 		if (!software->parms.dry_run && software->bootloader_transaction_marker) {
 			bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+			bootloader_env_unset(BOOTVAR_TRANSACTION);
 		}
-
+		inst.last_error = ERROR_INSTALL_SUCCESS;
 		if (!software->parms.dry_run
 			&& software->bootloader_state_marker
 			&& save_state(STATE_INSTALLED) != SERVER_OK) {
@@ -268,6 +287,33 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 }
 
 static void do_finish_install(int fd, struct swupdate_cfg *software){
+	if(inst.last_install == FAILURE &&
+		inst.last_error != ERROR_INSTALL_FAILED) {
+		/*
+		* The  inst.last_error == ERROR_INSTALL_FAILED, the system can 
+		*  broken and can't boot from, So we just only enter recovery and wait
+		* update from network. Other case, just the image is not correct and
+		* system can boot successfuly, and we unset bootloader env and set
+		* the update result.
+		*/
+		/*
+		* Clear the recovery variable to indicate to bootloader
+		* that it is not required to start recovery again
+		*/
+		if (!software->parms.dry_run && software->bootloader_transaction_marker) {
+			bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+			bootloader_env_unset(BOOTVAR_TRANSACTION);
+		}
+
+		notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
+
+		if (!software->parms.dry_run
+				&& software->bootloader_state_marker
+				&& save_state(STATE_FAILED) != SERVER_OK) {
+			WARN("Cannot persistently store FAILED update state.");
+		}
+	}
+
 	//report the result.
 	swupdate_progress_end(inst.last_install);
 	//run post-up command.
@@ -341,6 +387,7 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 		case IMAGE_EXTRACT_DESCRIPTION:
 			if (extract_file_to_tmp(fd, SW_DESCRIPTION_FILENAME, &offset, encrypted_sw_desc) < 0 ){
 				inst.last_install = FAILURE;
+				inst.last_error = ERROR_PARSER_DESCRIPTION;
 				status = IMAGE_INSTALL_END;
 			}else {
 				status = IMAGE_PARSE_AND_CHECK;
@@ -350,10 +397,12 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 		case IMAGE_PARSE_AND_CHECK:
 			if(do_image_parse(fd, &offset, software) < 0){
 				inst.last_install = FAILURE;
+				inst.last_error = ERROR_PARSER_FAILED;
 				status = IMAGE_INSTALL_END;
 			}else {
 				if(do_image_check(fd, &offset, software) < 0){
 					inst.last_install = FAILURE;
+					inst.last_error = ERROR_CHECKSUM_FAILED;
 					status = IMAGE_INSTALL_END;
 				}else
 					status = IMAGE_EXTRACT_AND_INSTALL;

@@ -112,6 +112,8 @@ static struct option long_options[] = {
 #ifdef CONFIG_RECOVERY_UI
 	{"gui", no_argument, NULL, 'g'},
 #endif
+	{"update", no_argument, NULL, '5'},
+	{"reboot", no_argument, NULL, '6'},
 	{"check", no_argument, NULL, 'c'},
 	{"postupdate", required_argument, NULL, 'p'},
 	{"preupdate", required_argument, NULL, 'P'},
@@ -139,6 +141,8 @@ static void usage(char *programname)
 		"                                  that are accepted via IPC\n"
 		"                                  Ex.: stable,main\n"
 		"                                  it can be set multiple times\n"
+		" --update                       : Enter update/recovery mode\n"
+		" --reboot                       : Reboot system after --update, -i or -w \n"
 		" -i, --image <filename>         : Software to be installed\n"
 		" -l, --loglevel <level>         : logging level\n"
 		" -L, --syslog                   : enable syslog logger\n"
@@ -191,6 +195,26 @@ static void usage(char *programname)
 
 struct swupdate_cfg *get_swupdate_cfg(void) {
 	return &swcfg;
+}
+
+static void get_args(int *argc, char ***argv) {
+    char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
+
+    if (*argc <= 1 && command != NULL) {
+        const char *arg = strtok(command, "\n");
+        if (arg != NULL && !strcmp(arg, "/usr/bin/swupdate")) {
+            *argv = (char **) malloc(sizeof(char *) * 100);
+            (*argv)[0] = strdup(arg);
+            for (*argc = 1; *argc < 100; ++*argc) {
+                if ((arg = strtok(NULL, "\n")) == NULL) break;
+                (*argv)[*argc] = strdup(arg);
+				printf("[%s]- ", (*argv)[*argc]);
+            }
+            printf("Got arguments from bootloader env. \n");
+        } else if (command[0] != 0 && command[0] != 255) {
+            printf("Bad boot command\n\"%.20s\"\n", command);
+        }
+    }
 }
 
 /*
@@ -411,9 +435,9 @@ int main(int argc, char **argv)
 	int opt_i = 0;
 	int opt_e = 0;
 	bool opt_c = false;
-#ifdef CONFIG_RECOVERY_UI
+	bool opt_r = false;
+	int opt_updt = 0;
 	bool opt_g = false;
-#endif
 	char image_url[MAX_URL];
 	char main_options[256];
 	unsigned int public_key_mandatory = 0;
@@ -469,6 +493,8 @@ int main(int argc, char **argv)
 #ifdef CONFIG_ENCRYPTED_IMAGES
 	strcat(main_options, "K:");
 #endif
+
+	get_args(&argc, &argv);
 
 	memset(fname, 0, sizeof(fname));
 
@@ -609,6 +635,12 @@ int main(int argc, char **argv)
 			strlcpy(swcfg.maximum_version, optarg,
 				sizeof(swcfg.maximum_version));
 			break;
+		case '5':
+			opt_updt = 1;
+			break;
+		case '6':
+			opt_r = true;
+			break;
 #ifdef CONFIG_ENCRYPTED_IMAGES
 		case 'K':
 			strlcpy(swcfg.aeskeyfname,
@@ -746,6 +778,12 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 #endif
+
+	if(opt_updt){
+		/* Set update mode to enter update/recovery mode. */
+		set_update_mode(opt_i == 1 ? fname : NULL, opt_r, opt_g, opt_w==1);
+		exit(0);
+	}
 
 	swupdate_crypto_init();
 

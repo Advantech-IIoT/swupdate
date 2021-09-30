@@ -38,6 +38,14 @@ typedef enum {
 	SOURCE_LOCAL
 } sourcetype;
 
+enum {
+	ERROR_INSTALL_SUCCESS = 0,
+	ERROR_PARSER_DESCRIPTION = -1,
+	ERROR_PARSER_FAILED =-2,
+	ERROR_CHECKSUM_FAILED =-3,
+	ERROR_INSTALL_FAILED =-4,
+};
+
 #ifdef __cplusplus
 }   // extern "C"
 #endif
