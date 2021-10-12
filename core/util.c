@@ -120,7 +120,11 @@ const char* get_tmpdir(void)
 
 	char *env_tmpdir = getenv("TMPDIR");
 	if (env_tmpdir == NULL) {
-		TMPDIR = (char*)"/tmp/";
+		if (!access("/userdata", F_OK)) {
+			TMPDIR = (char*)"/userdata/";
+		}else {
+			TMPDIR = (char*)"/tmp/";
+		}
 		return TMPDIR;
 	}
 
