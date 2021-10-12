@@ -43,6 +43,7 @@
 
 static int connfd = -1;
 static bool silent = false;
+static bool need_reboot = false;
 
 static void resetterm(void)
 {
@@ -185,8 +186,10 @@ static void* recoveryUI_loop_thread(void* data){
 			ui_print("DONE.\n");
 			sleep(1);
 			UIthread_finished();
-			if (system("reboot -f") < 0) { /* It should never happen */
-				printf("Please reset the board.\n");
+			if(need_reboot){
+				if (system("reboot -f") < 0) { /* It should never happen */
+					printf("Please reset the board.\n");
+				}
 			}
 			return NULL;
 		default:
@@ -201,7 +204,7 @@ static void* recoveryUI_loop_thread(void* data){
 *  we need to wait the progress connection is
 *  okay.
 */
-void start_recoveryUI(void){
+void start_recoveryUI(bool is_reboot){
 	/* ui init. */
 	ui_init();
     ui_set_background(BACKGROUND_ICON_INSTALLING);
@@ -214,6 +217,7 @@ void start_recoveryUI(void){
 		return;
 	}
 
+	need_reboot = is_reboot;
 	//start recovery UI loop thread.
 	start_thread(recoveryUI_loop_thread, NULL);
 }

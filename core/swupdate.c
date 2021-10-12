@@ -208,7 +208,6 @@ static void get_args(int *argc, char ***argv) {
             for (*argc = 1; *argc < 100; ++*argc) {
                 if ((arg = strtok(NULL, "\n")) == NULL) break;
                 (*argv)[*argc] = strdup(arg);
-				printf("[%s]- ", (*argv)[*argc]);
             }
             printf("Got arguments from bootloader env. \n");
         } else if (command[0] != 0 && command[0] != 255) {
@@ -436,6 +435,7 @@ int main(int argc, char **argv)
 	int opt_e = 0;
 	bool opt_c = false;
 	bool opt_r = false;
+	int opt_w = 0;
 	int opt_updt = 0;
 	bool opt_g = false;
 	char image_url[MAX_URL];
@@ -450,7 +450,6 @@ int main(int argc, char **argv)
 	int argcount = 0;
 #endif
 #ifdef CONFIG_WEBSERVER
-	int opt_w = 0;
 	char *weboptions;
 	char **av = NULL;
 	int ac = 0;
@@ -866,7 +865,7 @@ int main(int argc, char **argv)
 	/* Start local GUI  thread.*/
 	if(opt_g){
 		INFO("Start Recovery UI.");
-		start_recoveryUI();
+		start_recoveryUI(opt_w != 1 ? true : opt_r);
 	}
 #endif
 
@@ -875,6 +874,7 @@ int main(int argc, char **argv)
 	if (opt_w) {
 		uid_t uid;
 		gid_t gid;
+
 		read_settings_user_id(&handle, "webserver", &uid, &gid);
 		start_subprocess(SOURCE_WEBSERVER, "webserver", uid, gid,
 				 cfgfname, ac, av,

@@ -630,6 +630,7 @@ void *network_initializer(void *data)
 				 */
 				if (!software->parms.dry_run && software->bootloader_transaction_marker) {
 					bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+					bootloader_env_unset(BOOTVAR_TRANSACTION);
 				}
 				if (!software->parms.dry_run
 				    && software->bootloader_state_marker

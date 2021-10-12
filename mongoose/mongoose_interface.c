@@ -268,6 +268,11 @@ static void *broadcast_progress_thread(void *data)
 				msg.cur_percent);
 			broadcast(mgr, str);
 		}
+
+		/* It's a good place to reboot system.*/
+		if(msg.status == DONE){
+			system("reboot -f");
+		}
 	}
 
 	return NULL;
