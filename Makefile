@@ -385,6 +385,12 @@ tools-bins	:= $(patsubst $(srctree)/$(tools-y)/%.c,$(tools-y)/%,$(wildcard $(src
 tools-bins-unstr:= $(patsubst %,%_unstripped,$(tools-bins))
 tools-all	:= $(tools-objs)
 
+res-images := icon_error.png indeterminate1.png \
+		indeterminate3.png indeterminate5.png \
+		progress_empty.png icon_installing.png \
+		indeterminate2.png indeterminate4.png \
+		indeterminate6.png progress_fill.png
+
 ifeq ($(HAVE_LUA),y)
 lua_swupdate	:= lua_swupdate.so.0.1
 endif
@@ -473,9 +479,13 @@ install: all
 	install -d ${DESTDIR}/${BINDIR}
 	install -d ${DESTDIR}/${INCLUDEDIR}
 	install -d ${DESTDIR}/${LIBDIR}
+	install -d ${DESTDIR}/res/images
 	install -m 755 swupdate ${DESTDIR}/${BINDIR}
 	for i in ${tools-bins};do \
 		install -m 755 $$i ${DESTDIR}/${BINDIR}; \
+	done
+	for i in ${res-images};do \
+		install -m 0644 $(srctree)/recovery_ui/res/images/$$i ${DESTDIR}/res/images; \
 	done
 	install -m 0644 $(srctree)/include/network_ipc.h ${DESTDIR}/${INCLUDEDIR}
 	install -m 0644 $(srctree)/include/swupdate_status.h ${DESTDIR}/${INCLUDEDIR}
