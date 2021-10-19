@@ -49,7 +49,10 @@ void set_update_mode(char *image, bool is_reboot, bool gui_enabled, bool web_ena
 			sprintf(commond, "%s\n--image=%s\n", swupdatebin, image);
 	}else{
 		if(web_enabled){
-			sprintf(commond, "%s\n--webserver=%s\n", swupdatebin, web_args);
+			if(gui_enabled)
+				sprintf(commond, "%s\n-g\n--webserver=%s\n", swupdatebin, web_args);
+			else
+				sprintf(commond, "%s\n--webserver=%s\n", swupdatebin, web_args);
 		}
 	}
 

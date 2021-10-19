@@ -111,6 +111,8 @@ static void restart_handler(struct mg_connection *nc, int ev, void *ev_data)
 			return;
 		}
 
+		strncpy(msg.data.procmsg.buf, "reboot", 8);
+		msg.data.procmsg.len = 8;
 		int ret = ipc_postupdate(&msg);
 		if (ret) {
 			mg_http_send_error(nc, 500, "Failed to queue command");
@@ -270,7 +272,8 @@ static void *broadcast_progress_thread(void *data)
 		}
 
 		/* It's a good place to reboot system.*/
-		if(msg.status == DONE){
+		if(msg.status == DONE && msg.infolen > 0 && !strncmp(msg.info, "reboot", 6)){
+			sleep(1);
 			system("reboot -f");
 		}
 	}
@@ -333,7 +336,7 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 		mp = (struct mg_http_multipart_part *) p;
 		fus = (struct file_upload_state *) mp->user_data;
 
-		if (!fus)
+		if (!fus || fus->error_report)
 			break;
 
 		written = write(fus->fd, (char *) mp->data.p, mp->data.len);
