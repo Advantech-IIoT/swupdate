@@ -44,6 +44,7 @@ enum {
 	ERROR_PARSER_FAILED =-2,
 	ERROR_CHECKSUM_FAILED =-3,
 	ERROR_INSTALL_FAILED =-4,
+	ERROR_FILE_NOT_EXISTS =-5,
 };
 
 #ifdef __cplusplus

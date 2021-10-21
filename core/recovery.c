@@ -93,6 +93,9 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, 
 	uint32_t checksum;
 	const char* TMPDIR = get_tmpdir();
 
+	if(fd < 0)
+		return -5;
+
 	if (extract_cpio_header(fd, &fdh, poffs)) {
 		return -1;
 	}
@@ -342,6 +345,7 @@ static void do_finish_install(int fd, struct swupdate_cfg *software){
 *  software: the goloable configuration for this recovery work sequence.
 */
 int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
+	int ret = 0;
 	int status = IMAGE_EXTRACT_DESCRIPTION;
 	unsigned long offset = 0;
 	struct filehdr fdh;
@@ -362,6 +366,8 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 	inst.req.source = SOURCE_LOCAL;
 
 	software->parms.dry_run = dry_run;
+	//we need to set uboot env by default.
+	software->bootloader_transaction_marker = true;
 
 	/* Create directories for scripts/datadst */
 	swupdate_create_directory(SCRIPTS_DIR_SUFFIX);
@@ -385,9 +391,10 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 		switch (status) {
 		/* Waiting for the first Header */
 		case IMAGE_EXTRACT_DESCRIPTION:
-			if (extract_file_to_tmp(fd, SW_DESCRIPTION_FILENAME, &offset, encrypted_sw_desc) < 0 ){
+			ret = extract_file_to_tmp(fd, SW_DESCRIPTION_FILENAME, &offset, encrypted_sw_desc);
+			if (ret < 0 ){
 				inst.last_install = FAILURE;
-				inst.last_error = ERROR_PARSER_DESCRIPTION;
+				inst.last_error = ret == -5 ? ERROR_FILE_NOT_EXISTS : ERROR_PARSER_DESCRIPTION;
 				status = IMAGE_INSTALL_END;
 			}else {
 				status = IMAGE_PARSE_AND_CHECK;
