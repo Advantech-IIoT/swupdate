@@ -289,7 +289,9 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 	return 0;
 }
 
-static void do_finish_install(int fd, struct swupdate_cfg *software){
+static int do_finish_install(int fd, struct swupdate_cfg *software){
+	int result = inst.last_install == FAILURE ? -1 : 0;
+
 	if(inst.last_install == FAILURE &&
 		inst.last_error != ERROR_INSTALL_FAILED) {
 		/*
@@ -310,6 +312,7 @@ static void do_finish_install(int fd, struct swupdate_cfg *software){
 
 		notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
 
+		result = 1;
 		if (!software->parms.dry_run
 				&& software->bootloader_state_marker
 				&& save_state(STATE_FAILED) != SERVER_OK) {
@@ -336,6 +339,8 @@ static void do_finish_install(int fd, struct swupdate_cfg *software){
 
 	swupdate_remove_directory(SCRIPTS_DIR_SUFFIX);
 	swupdate_remove_directory(DATADST_DIR_SUFFIX);
+
+	return result;
 }
 
 /*
@@ -422,10 +427,9 @@ int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software) {
 			break;
 
 		case IMAGE_INSTALL_END:
-			do_finish_install(fd, software);
-			return 0;
+			return do_finish_install(fd, software);
 		default:
-			return -1;
+			return -100;
 		}
 	}
 }
