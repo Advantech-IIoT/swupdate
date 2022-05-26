@@ -27,7 +27,6 @@ int install_from_file(const char *filename, bool check, struct swupdate_cfg *sof
 	ret = do_recovery(fd, check, software);
 	if (filename && fd > 0) {
 		close(fd);
-		if(ret >= 0) unlink(filename);
 	}
 
 	return ret;
