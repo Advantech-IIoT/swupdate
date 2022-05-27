@@ -37,16 +37,21 @@ enum {
 
 static struct installer inst;
 
-void set_update_mode(char *image, bool is_reboot, bool gui_enabled, bool web_enabled){
+void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled){
 	char commond[1024] = {0};
 	const char* swupdatebin = "/usr/bin/swupdate";
 	char * web_args= "--document-root=/www";
 
 	if(image != NULL){
-		if(gui_enabled)
+		if(gui_enabled && is_delete) {
+			sprintf(commond, "%s\n-g\n-D\n--image=%s\n", swupdatebin, image);
+		} else if(gui_enabled && !is_delete) {
 			sprintf(commond, "%s\n-g\n--image=%s\n", swupdatebin, image);
-		else
+		} else if(!gui_enabled && is_delete) {
+			sprintf(commond, "%s\n-D\n--image=%s\n", swupdatebin, image);
+		} else {
 			sprintf(commond, "%s\n--image=%s\n", swupdatebin, image);
+		}
 	}else{
 		if(web_enabled){
 			if(gui_enabled)

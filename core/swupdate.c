@@ -72,6 +72,7 @@ static struct option long_options[] = {
 	{"verbose", no_argument, NULL, 'v'},
 	{"version", no_argument, NULL, '0'},
 	{"image", required_argument, NULL, 'i'},
+	{"delete", no_argument, NULL, 'D'},
 	{"file", required_argument, NULL, 'f'},
 	{"loglevel", required_argument, NULL, 'l'},
 	{"syslog", no_argument, NULL, 'L' },
@@ -144,6 +145,7 @@ static void usage(char *programname)
 		" --update                       : Enter update/recovery mode\n"
 		" --reboot                       : Reboot system after --update, -i or -w \n"
 		" -i, --image <filename>         : Software to be installed\n"
+		" -D, --delete                   : After update delete .swu or not\n"
 		" -l, --loglevel <level>         : logging level\n"
 		" -L, --syslog                   : enable syslog logger\n"
 #ifdef CONFIG_SIGNED_IMAGES
@@ -432,6 +434,7 @@ int main(int argc, char **argv)
 	char *cfgfname = NULL;
 	const char *software_select = NULL;
 	int opt_i = 0;
+	int opt_D = 0;
 	int opt_e = 0;
 	bool opt_c = false;
 	bool opt_r = false;
@@ -492,6 +495,7 @@ int main(int argc, char **argv)
 #ifdef CONFIG_ENCRYPTED_IMAGES
 	strcat(main_options, "K:");
 #endif
+	strcat(main_options, "D");
 
 	get_args(&argc, &argv);
 
@@ -604,6 +608,9 @@ int main(int argc, char **argv)
 		case 'i':
 			strlcpy(fname, optarg, sizeof(fname));
 			opt_i = 1;
+			break;
+		case 'D':
+			opt_D = 1;
 			break;
 		case 'o':
 			strlcpy(swcfg.output, optarg, sizeof(swcfg.output));
@@ -780,7 +787,7 @@ int main(int argc, char **argv)
 
 	if(opt_updt){
 		/* Set update mode to enter update/recovery mode. */
-		set_update_mode(opt_i == 1 ? fname : NULL, opt_r, opt_g, opt_w==1);
+		set_update_mode(opt_i == 1 ? fname : NULL, opt_D, opt_r, opt_g, opt_w==1);
 		exit(0);
 	}
 
@@ -930,6 +937,9 @@ int main(int argc, char **argv)
 
 	if (opt_i) {
 		result = install_from_file(fname, opt_c, &swcfg);
+		if(result >= 0 && opt_D == 1) {
+			unlink(fname);
+		}
 		cleanup_files(&swcfg);
 	}
 
