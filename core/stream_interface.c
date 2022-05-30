@@ -650,6 +650,8 @@ void *network_initializer(void *data)
 
 		swupdate_progress_end(inst.last_install);
 
+		save_update_result(inst.last_install);
+		
 		/*
 		 * Reload default values for update
 		 */

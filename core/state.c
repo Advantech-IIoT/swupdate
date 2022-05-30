@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <util.h>
 #include <bootloader.h>
 #include <state.h>
@@ -16,6 +17,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "pctl.h"
+
+
+#define RST_FILE_NAME "update_rst.txt"
 
 /*
  * This check is to avoid to corrupt the environment
@@ -29,6 +33,43 @@
 		v = (char *)"ustate"; \
 	} \
 } while(0)
+
+int save_update_result(RECOVERY_STATUS status) 
+{
+	int fd = -1;
+	char* result_file = NULL;
+	char text[128] ;
+	memset(text, 0, sizeof(text));
+
+	if (asprintf(&result_file, "%s%s", get_tmpdir(), RST_FILE_NAME) == ENOMEM_ASPRINTF) {
+		ERROR("Path too long: %s%s", get_tmpdir(), RST_FILE_NAME);
+		return -1;
+	}
+	
+	fd = open(result_file, O_CREAT | O_WRONLY | O_TRUNC, 0777);
+	if (fd < 0) {
+		ERROR("open %s fail, errno = %d\n", result_file, errno);
+		free(result_file);
+		return -1;
+	}
+	
+	if(status == SUCCESS) {
+		strlcpy(text, "update images success!\n", 127);
+	} else {
+		strlcpy(text, "update images failed!\n", 127);
+	}
+
+	int w_len = write(fd, text, strlen(text));
+	if (w_len <= 0) {
+		ERROR("write %s fail, errno = %d\n", result_file, errno);
+		free(result_file);
+		return -1;
+	}
+	free(result_file);
+	close(fd);
+	
+	return 0;
+}
 
 static int do_save_state(char *key, char* value)
 {
