@@ -327,6 +327,8 @@ static int do_finish_install(int fd, struct swupdate_cfg *software){
 
 	//report the result.
 	swupdate_progress_end(inst.last_install);
+	//save the result
+	save_update_result(inst.last_install);
 	//run post-up command.
 	if (software) {
 		if (software->parms.dry_run) {

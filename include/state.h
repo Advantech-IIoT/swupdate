@@ -58,5 +58,6 @@ static inline char* get_state_string(update_state_t state) {
 	return (char*)"<nil>";
 }
 
+int save_update_result(RECOVERY_STATUS status);
 int save_state(update_state_t value);
 update_state_t get_state(void);
