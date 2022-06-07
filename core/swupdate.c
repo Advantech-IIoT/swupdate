@@ -47,6 +47,7 @@
 #include "pctl.h"
 #include "state.h"
 #include "bootloader.h"
+#include "sdboot.h"
 
 #ifdef CONFIG_SYSTEMD
 #include <systemd/sd-daemon.h>
@@ -497,9 +498,23 @@ int main(int argc, char **argv)
 #endif
 	strcat(main_options, "D");
 
-	get_args(&argc, &argv);
-
 	memset(fname, 0, sizeof(fname));
+
+	bool bSDBoot    = false;
+	bSDBoot = is_boot_from_SD();
+	if (!bSDBoot) {
+		get_args(&argc, &argv);
+	} else {
+		sdcard_mount(EX_SDCARD_ROOT);
+		if (is_image_exits()) {
+			opt_i  = 1; //--image
+		 	opt_c  = 1; //--check
+			opt_g  = 1; //--gui
+			opt_D  = 0; //--delete
+			strcpy(fname, EX_SDCARD_ROOT);
+			strcat(fname, EX_SDCARD_FILE);
+		}
+	}
 
 	/* Initialize internal database */
 	swupdate_init(&swcfg);
@@ -940,6 +955,7 @@ int main(int argc, char **argv)
 		if(result >= 0 && opt_D == 1) {
 			unlink(fname);
 		}
+		
 		cleanup_files(&swcfg);
 	}
 

@@ -28,4 +28,5 @@ obj-y += swupdate.o \
 	 semver.o \
 	 recovery.o \
      recovery_ui.o \
-	 strlcpy.o
+	 strlcpy.o \
+	sdboot.o
