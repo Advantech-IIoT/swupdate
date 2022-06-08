@@ -20,6 +20,7 @@
 #include "progress_ipc.h"
 #include "recovery_ui.h"
 #include "pctl.h"
+#include "sdboot.h"
 
 
 #define PSPLASH_MSG_SIZE	64
@@ -174,7 +175,7 @@ static void* recoveryUI_loop_thread(void* data){
 		switch (msg.status) {
 		case SUCCESS:
 		case FAILURE:
-			if(msg.status != SUCCESS){
+			if(msg.status != SUCCESS) {
 				ui_set_background(BACKGROUND_ICON_ERROR);
 			}
 	
@@ -184,9 +185,20 @@ static void* recoveryUI_loop_thread(void* data){
 			break;
 		case DONE:
 			ui_print("DONE.\n");
+			if (is_boot_from_SD()) {
+				sdcard_umount(EX_SDCARD_ROOT);
+				/* Updating is finished here, we must print this message
+	             * in console, it shows user a specific message that
+	             * updating is completely, remove SD CARD and reboot */
+	            fflush(stdout);
+	            freopen("/dev/console", "w", stdout);
+	            printf("\nPlease remove SD CARD!!!, wait for reboot.\n");
+				ui_print("Please remove SD CARD!!!, wait for reboot.");
+				while( access("/dev/mmcblk1p1", F_OK) == 0 ) { sleep(1); }		
+			}
 			sleep(1);
 			UIthread_finished();
-			if(need_reboot){
+			if(need_reboot) {
 				if (system("reboot -f") < 0) { /* It should never happen */
 					printf("Please reset the board.\n");
 				}
