@@ -192,7 +192,7 @@ void free_image(struct img_type *img);
 * in future.
 */
 int do_recovery(int fd, bool dry_run, struct swupdate_cfg *software);
-void start_recoveryUI(bool is_reboot);
+void start_recoveryUI(bool is_reboot, bool web_enabled);
 void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled);
 
 #endif
