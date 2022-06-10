@@ -45,6 +45,7 @@
 static int connfd = -1;
 static bool silent = false;
 static bool need_reboot = false;
+static bool iotc_ip = false; /*swupdate both with -g and -w option acquire device ip and ui print*/
 
 static void resetterm(void)
 {
@@ -85,8 +86,36 @@ static void* recoveryUI_loop_thread(void* data){
 	char tmp_image[256]={0};
 	int ret;
 	bool wait_update = true;
+	bool wait_ip = true;
 
 	while (1) {
+#if defined(CONFIG_MONGOOSE)
+		if (iotc_ip) {
+			if (wait_ip) {
+				ui_print("Acquiring device ip...\n");
+				wait_ip = false;
+			}
+			
+			char ifname[8] = {0};
+			if (get_netlink_status("eth0") == 1) {
+				snprintf(ifname, sizeof(ifname), "eth0");
+			} else if (get_netlink_status("eth1") == 1) {
+				snprintf(ifname, sizeof(ifname), "eth1");
+			} else {
+				sleep(1);
+				continue;
+			}
+			
+			char ip_addr[16] = {0};
+			if (get_netlink_ipaddr(ip_addr, sizeof(ip_addr), ifname) == 0) {
+				ui_print("Acquired, device ip addr is:%s\n", ip_addr);
+				iotc_ip = false;
+			} else {
+				sleep(1);
+				continue;
+			}
+		}
+#endif
 		if (progress_ipc_receive(&connfd, &msg) <= 0) {
 			connfd = progress_ipc_connect(true);
 			continue;
@@ -216,7 +245,7 @@ static void* recoveryUI_loop_thread(void* data){
 *  we need to wait the progress connection is
 *  okay.
 */
-void start_recoveryUI(bool is_reboot){
+void start_recoveryUI(bool is_reboot, bool web_enabled){
 	/* ui init. */
 	ui_init();
     ui_set_background(BACKGROUND_ICON_INSTALLING);
@@ -230,6 +259,7 @@ void start_recoveryUI(bool is_reboot){
 	}
 
 	need_reboot = is_reboot;
+	iotc_ip = web_enabled;
 	//start recovery UI loop thread.
 	start_thread(recoveryUI_loop_thread, NULL);
 }

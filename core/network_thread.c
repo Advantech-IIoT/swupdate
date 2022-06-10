@@ -19,6 +19,7 @@
 #include <sys/un.h>
 #include <sys/select.h>
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <pthread.h>
 
@@ -356,6 +357,62 @@ static void *subprocess_thread (void *data)
 	}
 
 	return NULL;
+}
+
+int get_netlink_status(char *ifname)
+{
+	struct ifreq ifr;
+	memset(&ifr, 0, sizeof(struct ifreq));
+	
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);	
+	if (fd == -1) {
+		ERROR("Create socket failed!");
+		return -1;
+	}	
+	
+	/* 1. copy interface name to ifreq structure */
+    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+	if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	if (ifr.ifr_flags & IFF_RUNNING) {
+		close(fd);
+		return 1;
+	}
+	
+	close(fd);
+	return 0;
+}
+
+int get_netlink_ipaddr(char *buf, size_t len, char *ifname)
+{
+	struct ifreq ifr; 
+	memset(&ifr, 0, sizeof(struct ifreq));
+	struct sockaddr_in *addr = NULL;
+	
+	int fd = socket(AF_INET, SOCK_DGRAM, 0); 
+	if (fd == -1) {
+		ERROR("Create socket failed!");
+		return -1;
+	}	
+
+	/* 1. set type of address to retrieve : IPv4 */
+	ifr.ifr_addr.sa_family = AF_INET;
+
+	/* 2. copy interface name to ifreq structure */
+	strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+
+	if (ioctl(fd, SIOCGIFADDR, &ifr) < 0) {
+		close(fd);
+		return -1;
+	}	
+
+	close(fd);
+	addr = (struct sockaddr_in *)&ifr.ifr_addr;
+	snprintf(buf, len, "%s", inet_ntoa(addr->sin_addr));
+	return 0;
 }
 
 void *network_thread (void *data)

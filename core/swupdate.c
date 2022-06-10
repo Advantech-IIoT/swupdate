@@ -887,7 +887,7 @@ int main(int argc, char **argv)
 	/* Start local GUI  thread.*/
 	if(opt_g){
 		INFO("Start Recovery UI.");
-		start_recoveryUI(opt_w != 1 ? true : opt_r);
+		start_recoveryUI(opt_w != 1 ? true : opt_r, opt_w==1 ? true : false);
 	}
 #endif
 
