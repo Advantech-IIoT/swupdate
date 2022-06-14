@@ -20,45 +20,6 @@ an embedded Linux system in field. SWUpdate supports local and OTA
 updates, multiple update strategies and it is designed with security
 in mind.
 
-## Getting started
-
-To start with SWUpdate, it is suggested you look at the documentation
-and build for one evaluation board (or you run SWUpdate on your host
-for a first overview).
-
-## Features
-
-SWUpdate is a framework with a lot of configurable options:
-
-- Update of all components of device (rootfs, kernel, bootloader, microcontroller FW)
-- Install on embedded media (eMMC, SD, Raw NAND, UBIFS, NOR and SPI-NOR flashes)
-- Partitioner for GPT and MBR partition table
-- Allow single image delivery on multiple devices
-- Streaming mode without temporary copies of artifacts
-- Multiple interfaces (local and OTA) for getting software
-    - local storage (USB, etc.)
-    - integrated web server
-    - integrated REST client connector to [hawkBit](https://projects.eclipse.org/projects/iot.hawkbit) for fleet updates.
-    - remote server download
-- Software delivered as images, gzipped tarball, etc.
-- Allow custom handlers for installing FPGA firmware, microcontroller firmware via custom protocols.
-- Delta updates based on librsync.
-- Fail safe and atomic update
-- Lua interpreter to extend the update rules on your needs
-- Hardware / Software compatibility.
-- Small footprint to generate a rescue system to restore the device.
-- Cryptographic sign and verification of updates
-	- support for OpenSSL
-	- support for mbedTLS
-	- support for WolfSSL
-- Encryption of artifacts via symmetric AES key.
-- pre and post update scripts
-- small resources required.
-- controllable via library
-- progress interface to report update status to an application / HMI.
-- ...and many others.
-
-Take a look at [features](https://swupdate.org/features).
 
 ## Technical documentation
 
@@ -69,34 +30,68 @@ to the [Online Documentation](https://sbabic.github.io/swupdate/swupdate.html).
 
 SWUpdate is well integrated in the [Yocto](https://www.yoctoproject.org) build system by adding
 the [meta-swupdate](https://layers.openembedded.org/layerindex/branch/master/layer/meta-swupdate/) layer.
-It is also integrated in [Buildroot](https://github.com/buildroot/buildroot/blob/master/package/swupdate/swupdate.config).
-Debian (and Debian-like distributions) has merged a [package](https://packages.debian.org/unstable/swupdate).
 
-Examples using meta-swupdate with evaluation boards (Beaglebone, RPI3) are provided in
-[meta-swupdate-boards](https://layers.openembedded.org/layerindex/branch/master/layer/meta-swupdate-boards/) layer.
+`source setup-environment eam9918a1`
 
-## License
+`bitbake swupdate-image`
 
-SWUpdate is released under GPLv2. A library to control SWUpdate is part of the
-project and it is released under LGPLv2.1.
-License information for any file is either explicitly stated
-or defaults to GPL version 2.0. Extension written in Lua are subjected to
-Lua license (MIT).
+`bitbake imx-image-full`
 
-## Community support
+the result file is located in *tmp/deploy/images/imx8mmeamb9918a1*，
 
-A community support takes place on the SWUpdate's Mailing List:
+*swupdate-image-imx8mmeamb9918a1-.rootfs.cpio.gz.u-boot* is initrd.img, which is recovery partition image.
 
-	swupdate@googlegroups.com
+LABEL="recovery" BLOCK_SIZE="512" TYPE="vfat" PARTUUID="e191c4ad-02"
 
-The Mailing List is open without need to be registered.
+*imx-image-full-imx8mmeamb9918a1-.rootfs.tar.bz2* and *imx-image-full-imx8mmeamb9918a1.ext4* is rootfs partition image.
 
-## Contributing to the project
+LABEL="rootfs" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="e191c4ad-03"
 
-Contributions are welcome !  You can submit your patches (or post questions
-regarding the project) to the Mailing List.
+use `swupdate-tools/mkupdateimg.sh ../imx-image-full-imx8mmeamb9918a1.ext4` to make `*.swu`, which is the upgrade file.
 
-Please read the [contributing](http://sbabic.github.io/swupdate/contributing.html)
-chapter in the documentation how to contribute to the project.
+## Running
 
-Patches are collected by [Patchwork](https://patchwork.ozlabs.org/project/swupdate/list)
+- #### Webserver update
+
+In normal mode, execute the follow command `swupdate --update -w "-r /www" -g --reboot` 
+
+`--update`,  environment variables `recovery_command` and `recovery_status` will be updated
+
+`-w`, upgrade use  web server， `"-r /www"`,  web server options
+
+`-g,--gui`, upgrade process will display on the lcd screen
+
+`--reboot`, after device  restarted , device enter recovery mode and `/usr/bin/swupdate` run in background
+
+Link to the target device use the following url：*http://<target_ip>:8080*
+
+- #### Local update
+
+If boot with emmc, mount /dev/mmcblk2p4 on /userdata, else if boot with sdcard , mount /dev/mmcblk1p4 on /userdata. Then copy the upgrade file to /userdata path, and execute the follow command in normal mode, 
+
+`swupdate --update -g -i "/userdata/swupdate-image_1.0.swu" --reboot`
+
+`-i,--image`, upgrade file location
+
+`-D,--delete`, delete upgrade file swupdate-image_1.0.swu or not
+
+*--update,-g,--reboot, reference above*
+
+- #### SDCard update
+
+Use the `fdisk` and `mkfs.vfat` tools to create sdcard partiton `/dev/mmcblk1p1`,   copy the upgrade file to the partition, location is `/dev/mmcblk1p1/swupdate-image.swu`. 
+
+When the device is power on with the above sdcard,  uboot phase will check the file of `/dev/mmcblk1p1/swupdate-image.swu` exist or not. For debug, you can enter uboot command line mode and execute `fatls mmc 1:1` to check the file exist or not. If the file exist,  will also verify the validity of the file. If the validity of the file is verified in the meantime, append `swupdate` to environment variable `bootargs` and update `recovery_status` value is 'in_process'. Finally, device enter recovery mode, execute `/usr/sbin/swupdate` in background. 
+
+In swupdate,  read `/proc/cmdline` to check `swupdate`  key words exist or not.  If `swupdate` exist, start sdcard upgrade process,  which samed as local upgrade process. When the process of upgrade finished, prompt user to remove sdcard which prevent  device from doing repeated upgrade. When  sdcard removed ,  reboot the device. 
+
+Note: 
+1. upgrade file name must be renamed as swupdate-image.swu.
+2. /dev/mmcblk1p1 must be formated as vfat.
+
+## Result
+
+update_rst.txt file record the result of the upgrade process.  If success,  the content is update images is success, if failed, the content is update images failed.
+
+where is the location of the update_rst.txt？ If defined environment TMPDIR, then use getenv("TMPDIR") to read the directory which is used to  save update_rst.txt, else access the directory /userdata exist or not, if not, use /tmp, otherwise use /userdata.
+
