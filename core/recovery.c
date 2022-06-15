@@ -70,7 +70,7 @@ void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabl
 	printf("[Done!]\r\n");
 
 	if(is_reboot){
-		system("reboot -f");
+		system("reboot -i");
 	}
 }
 static struct img_type* find_image_type(struct swupdate_cfg *software, struct filehdr *pfdh){
