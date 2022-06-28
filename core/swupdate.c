@@ -508,7 +508,6 @@ int main(int argc, char **argv)
 		sdcard_mount(EX_SDCARD_ROOT);
 		if (is_image_exits()) {
 			opt_i  = 1; //--image
-		 	opt_c  = 1; //--check
 			opt_g  = 1; //--gui
 			opt_D  = 0; //--delete
 			strcpy(fname, EX_SDCARD_ROOT);
