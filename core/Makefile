@@ -12,6 +12,7 @@ obj-y += swupdate.o \
 	 cpio_utils.o \
 	 notifier.o \
 	 handler.o \
+	 bootloader.o \
 	 install_from_file.o \
 	 util.o \
 	 parser.o \
@@ -29,4 +30,4 @@ obj-y += swupdate.o \
 	 recovery.o \
      recovery_ui.o \
 	 strlcpy.o \
-	sdboot.o
+	 sdboot.o

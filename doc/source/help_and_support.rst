@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 ================
 Help and support
 ================
@@ -31,7 +34,7 @@ Please check for `services <https://swupdate.org/services>` if you need professi
 Talks about SWUpdate
 ====================
 
-       - `Software Update in Embedded Systems by Stefano Babic <http://events.linuxfoundation.org/sites/events/files/slides/SoftwareUpdateForEmbedded.pdf>`_
+       - `Software Update in Embedded Systems by Stefano Babic <https://elinux.org/images/1/19/Babic--software_update_in_embedded_systems.pdf>`_
        - `Updating Embedded Linux devices in field by Chris Simmonds <http://de.slideshare.net/chrissimmonds/linux-fieldupdate2015>`_
        - `OpenEmbedded in the Real World by Scott Murray <https://elinux.org/images/7/74/Murray.pdf>`_
        - `[RFC] Device-side support for software update in AGL by Matt Porter <https://lists.linuxfoundation.org/pipermail/automotive-discussions/2016-May/002061.html>`_
@@ -59,6 +62,8 @@ Talks about SWUpdate
        - Evolution of (OTA) Update in the IoT world by Stefano Babic, ELC 2019,
          `Slides ELC 2019 <https://www.slideshare.net/StefanoBabic/evolution-of-otaupdateintheiotworld>`_,
          `Video ELC 2019 <https://www.youtube.com/watch?v=WZHO18EhD7Y>`_,
+       - Introduction of CIP Software Updates Working Group by Akihiro Suzuki, CIP Mini Summit 2019,
+         `Slides CIP 2019 <https://wiki.linuxfoundation.org/_media/civilinfrastructureplatform/cipconferences/sw_updates_wg_mini-summit.pdf>`_,
        - There is No Store For Self-Driving Car Parts by Stephen Segal and Matt Fornero (Cruise LLC), ELC 2020,
          `Slides Cruise ELC 2020 <https://static.sched.com/hosted_files/ossna2020/56/No_Store_for_AV_Parts_ELC_NA_2020.pdf>`_,
          `Video Cruise <https://www.youtube.com/watch?v=PSq13Kv4Qk4>`_

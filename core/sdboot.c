@@ -22,14 +22,14 @@
 
 bool is_boot_from_SD(void) {
     bool bSDBoot = false;
-    char param[1024];
+    char param[1024] = {0};
     int fd, ret;
     char *s = NULL;
     
     memset(param,0,1024);
 
     fd = open("/proc/cmdline", O_RDONLY);
-    ret = read(fd, (char*)param, 1024);
+    ret = read(fd, (char*)param, 1023);
 
     s = strstr(param, "sdfwupdate");
     if (s != NULL) {
@@ -47,7 +47,7 @@ bool is_boot_from_SD(void) {
 void sdcard_mount(const char *mntpoint)
 {
 	int ret;
-	char node[64];
+	char node[64] = {0};
 	int dev_num = 1;
 	int vol_id = 1;
 	

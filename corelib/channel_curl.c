@@ -53,6 +53,7 @@ typedef struct {
 	channel_data_t *channel_data;
 	int output;
 	output_data_t *outdata;
+	channel_t *this;
 } write_callback_t;
 
 typedef struct {
@@ -75,12 +76,12 @@ char *channel_get_redirect_url(channel_t *this);
 static void channel_log_effective_url(channel_t *this);
 
 /* Prototypes for "public" functions */
+static channel_op_res_t channel_close(channel_t *this);
+static channel_op_res_t channel_open(channel_t *this, void *cfg);
+static channel_op_res_t channel_get(channel_t *this, void *data);
+static channel_op_res_t channel_get_file(channel_t *this, void *data);
+static channel_op_res_t channel_put(channel_t *this, void *data);
 channel_op_res_t channel_curl_init(void);
-channel_op_res_t channel_close(channel_t *this);
-channel_op_res_t channel_open(channel_t *this, void *cfg);
-channel_op_res_t channel_get(channel_t *this, void *data);
-channel_op_res_t channel_get_file(channel_t *this, void *data);
-channel_op_res_t channel_put(channel_t *this, void *data);
 channel_t *channel_new(void);
 
 
@@ -184,15 +185,21 @@ size_t channel_callback_ipc(void *streamdata, size_t size, size_t nmemb,
 		}
 	}
 
-	if (ipc_send_data(data->output, streamdata, (int)(size * nmemb)) <
+	if (!data->channel_data->http_response_code)
+		channel_map_http_code(data->this, &data->channel_data->http_response_code);
+
+	if (!data->channel_data->noipc &&
+		ipc_send_data(data->output, streamdata, (int)(size * nmemb)) <
 	    0) {
 		ERROR("Writing into SWUpdate IPC stream failed.");
 		result_channel_callback_ipc = CHANNEL_EIO;
 		return 0;
 	}
 
-	if (data->channel_data->checkdwl && data->channel_data->checkdwl())
-		return 0;
+	if (data->channel_data->dwlwrdata) {
+		return data->channel_data->dwlwrdata(streamdata, size, nmemb, data->channel_data);
+	}
+
 	/*
 	 * Now check if there is a callback from the server
 	 * during the download
@@ -375,11 +382,6 @@ channel_op_res_t channel_map_curl_error(CURLcode res)
 	case CURLE_COULDNT_RESOLVE_HOST:
 	case CURLE_COULDNT_CONNECT:
 	case CURLE_INTERFACE_FAILED:
-	case CURLE_SSL_CONNECT_ERROR:
-	case CURLE_PEER_FAILED_VERIFICATION:
-#if LIBCURL_VERSION_NUM < 0x073E00
-	case CURLE_SSL_CACERT:
-#endif
 	case CURLE_USE_SSL_FAILED:
 		return CHANNEL_ENONET;
 	case CURLE_OPERATION_TIMEDOUT:
@@ -408,6 +410,13 @@ channel_op_res_t channel_map_curl_error(CURLcode res)
 	case CURLE_REMOTE_ACCESS_DENIED:
 	case CURLE_LOGIN_DENIED:
 		return CHANNEL_EACCES;
+	case CURLE_PEER_FAILED_VERIFICATION:
+#if LIBCURL_VERSION_NUM < 0x073E00
+	case CURLE_SSL_CACERT:
+#endif
+		return CHANNEL_ESSLCERT;
+	case CURLE_SSL_CONNECT_ERROR:
+		return CHANNEL_ESSLCONNECT;
 	case CURLE_OK:
 		return CHANNEL_OK;
 	default:
@@ -430,7 +439,9 @@ static int channel_callback_xferinfo(void *p, curl_off_t dltotal, curl_off_t dln
 	else
 		data->percent = percent;
 
-	DEBUG("Downloaded %d%% (%lu of %lu kB).", percent, dlnow / 1024, dltotal / 1024);
+	DEBUG("Downloaded %d%% (%zu of %zu kB).", percent,
+		(size_t)dlnow / 1024,
+		(size_t)dltotal / 1024);
 	swupdate_download_update(percent, dltotal);
 
 	return 0;
@@ -447,37 +458,45 @@ static int channel_callback_xferinfo_legacy(void *p, double dltotal, double dlno
 
 static size_t channel_callback_headers(char *buffer, size_t size, size_t nitems, void *userdata)
 {
-	struct dict *dict = (struct dict *)userdata;
-	char *info = malloc(size * nitems + 1);
+	channel_data_t *channel_data = (channel_data_t *)userdata;
+	struct dict *dict = channel_data->received_headers;
+	char *info;
 	char *p, *key, *val;
 
-	if (!info) {
-		ERROR("No memory allocated for headers, headers not collected !!");
-		return nitems * size;
-	}
-	/*
-	 * Work on a local copy because the buffer is not
-	 * '\0' terminated
-	 */
-	memcpy(info, buffer, size * nitems);
-	info[size * nitems] = '\0';
-	p = memchr(info, ':', size * nitems);
-	if (p) {
-		*p = '\0';
-		key = info;
-		val = p + 1; /* Next char after ':' */
-		while(isspace((unsigned char)*val)) val++;
-		/* Remove '\n', '\r', and '\r\n' from header's value. */
-		*strchrnul(val, '\r') = '\0';
-		*strchrnul(val, '\n') = '\0';
-		/* For multiple same-key headers, only the last is saved. */
-		dict_set_value(dict, key, val);
-		TRACE("Header processed: %s : %s", key, val);
-	} else {
-		TRACE("Header not processed: '%s'", info);
+	if (dict) {
+		info = malloc(size * nitems + 1);
+		if (!info) {
+			ERROR("No memory allocated for headers, headers not collected !!");
+			return nitems * size;
+		}
+		/*
+		 * Work on a local copy because the buffer is not
+		 * '\0' terminated
+		 */
+		memcpy(info, buffer, size * nitems);
+		info[size * nitems] = '\0';
+		p = memchr(info, ':', size * nitems);
+		if (p) {
+			*p = '\0';
+			key = info;
+			val = p + 1; /* Next char after ':' */
+			while(isspace((unsigned char)*val)) val++;
+			/* Remove '\n', '\r', and '\r\n' from header's value. */
+			*strchrnul(val, '\r') = '\0';
+			*strchrnul(val, '\n') = '\0';
+			/* For multiple same-key headers, only the last is saved. */
+			dict_set_value(dict, key, val);
+			TRACE("Header processed: %s : %s", key, val);
+		} else {
+			TRACE("Header not processed: '%s'", info);
+		}
+
+		free(info);
 	}
 
-	free(info);
+	if (channel_data->headers)
+		return channel_data->headers(buffer, size, nitems, userdata);
+
 	return nitems * size;
 }
 
@@ -522,6 +541,17 @@ static channel_op_res_t channel_set_content_type(channel_t *this,
 			result = CHANNEL_EINIT;
 		}
 	}
+	/*
+	 * Add default charset for application content
+	 */
+	if ((!strcmp(content, "application/json") || !strcmp(content, "application/text")) &&
+             (result == CHANNEL_OK)) {
+		if ((channel_curl->header = curl_slist_append(
+			channel_curl->header, "charsets: utf-8")) == NULL) {
+			ERROR("Set channel charset header failed.");
+			result = CHANNEL_EINIT;
+		}
+	}
 
 	return result;
 }
@@ -552,9 +582,6 @@ channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_da
 	    (curl_easy_setopt(channel_curl->handle, CURLOPT_REDIR_PROTOCOLS,
 			      CURLPROTO_HTTP | CURLPROTO_HTTPS) != CURLE_OK) ||
 	    (curl_easy_setopt(channel_curl->handle,
-			      CURLOPT_CAINFO,
-			      channel_data->cafile) != CURLE_OK) ||
-	    (curl_easy_setopt(channel_curl->handle,
 			      CURLOPT_SSLKEY,
 			      channel_data->sslkey) != CURLE_OK) ||
 	    (curl_easy_setopt(channel_curl->handle,
@@ -574,6 +601,17 @@ channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_da
 		goto cleanup;
 	}
 
+	/* Only use cafile when set, otherwise let curl use
+	 * the default system location for cacert bundle
+	 */
+	if ((channel_data->cafile) &&
+            (curl_easy_setopt(channel_curl->handle,
+			       CURLOPT_CAINFO,
+			       channel_data->cafile) != CURLE_OK)) {
+		result = CHANNEL_EINIT;
+		goto cleanup;
+	}
+
 	if (channel_data->debug) {
 		(void)curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
 	}
@@ -585,25 +623,21 @@ channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_da
 		goto cleanup;
 	}
 
-	if (channel_data->headers) {
-		/*
-		 * Setup supply request and receive reply HTTP headers.
-		 * A LIST_INIT()'d dictionary is expected at channel_data->headers.
-		 * The dictionary is modified in-place with the received headers,
-		 * if any, by channel_callback_headers().
-		 */
+	if (channel_data->received_headers || channel_data->headers) {
 		if ((curl_easy_setopt(channel_curl->handle,
 			      CURLOPT_HEADERFUNCTION,
 			      channel_callback_headers) != CURLE_OK) ||
 		    (curl_easy_setopt(channel_curl->handle, CURLOPT_HEADERDATA,
-			      channel_data->headers) != CURLE_OK)) {
+			      channel_data) != CURLE_OK)) {
 			result = CHANNEL_EINIT;
 			goto cleanup;
 		}
+	}
 
+	if (channel_data->headers_to_send) {
 		struct dict_entry *entry;
 		char *header;
-		LIST_FOREACH(entry, channel_data->headers, next)
+		LIST_FOREACH(entry, channel_data->headers_to_send, next)
 		{
 			if (ENOMEM_ASPRINTF ==
 			    asprintf(&header, "%s: %s",
@@ -719,6 +753,15 @@ channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_da
 		if (curl_easy_setopt(channel_curl->handle, CURLOPT_USERPWD,
 				     channel_data->auth) != CURLE_OK) {
 			ERROR("Basic Auth credentials could not be set.");
+			result = CHANNEL_EINIT;
+			goto cleanup;
+		}
+	}
+
+	if (channel_data->range) {
+		if (curl_easy_setopt(channel_curl->handle, CURLOPT_RANGE,
+				     channel_data->range) != CURLE_OK) {
+			ERROR("Bytes Range could not be set.");
 			result = CHANNEL_EINIT;
 			goto cleanup;
 		}
@@ -908,7 +951,7 @@ static channel_op_res_t channel_post_method(channel_t *this, void *data, int met
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
 	output_data_t outdata = {};
-	write_callback_t wrdata = { .channel_data = channel_data, .outdata = &outdata };
+	write_callback_t wrdata = { .this = this, .channel_data = channel_data, .outdata = &outdata };
 
 	if ((result = channel_set_content_type(this, channel_data)) !=
 	    CHANNEL_OK) {
@@ -984,6 +1027,8 @@ static channel_op_res_t channel_put_method(channel_t *this, void *data)
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
 	channel_data->offs = 0;
+	output_data_t outdata = {};
+	write_callback_t wrdata = { .this = this, .channel_data = channel_data, .outdata = &outdata };
 
 	if ((result = channel_set_content_type(this, channel_data)) !=
 	    CHANNEL_OK) {
@@ -993,6 +1038,10 @@ static channel_op_res_t channel_put_method(channel_t *this, void *data)
 
 	if ((result = channel_set_options(this, channel_data)) != CHANNEL_OK) {
 		ERROR("Set channel option failed.");
+		goto cleanup_header;
+	}
+
+	if ((result = setup_reply_buffer(channel_curl->handle, &wrdata)) != CHANNEL_OK) {
 		goto cleanup_header;
 	}
 
@@ -1031,6 +1080,7 @@ static channel_op_res_t channel_put_method(channel_t *this, void *data)
 	channel_log_reply(result, channel_data, NULL);
 
 cleanup_header:
+	outdata.memory != NULL ? free(outdata.memory) : (void)0;
 	curl_easy_reset(channel_curl->handle);
 	curl_slist_free_all(channel_curl->header);
 	channel_curl->header = NULL;
@@ -1060,7 +1110,8 @@ channel_op_res_t channel_put(channel_t *this, void *data)
 channel_op_res_t channel_get_file(channel_t *this, void *data)
 {
 	channel_curl_t *channel_curl = this->priv;
-	int file_handle;
+	int file_handle = -1;
+	struct swupdate_request req;
 	assert(data != NULL);
 	assert(channel_curl->handle != NULL);
 
@@ -1094,15 +1145,30 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 		goto cleanup_header;
 	}
 
+	if (channel_data->max_download_speed &&
+			curl_easy_setopt(channel_curl->handle,
+				CURLOPT_MAX_RECV_SPEED_LARGE,
+				channel_data->max_download_speed) != CURLE_OK) {
+		ERROR("Set channel download speed limit failed.");
+		result = CHANNEL_EINIT;
+		goto cleanup_header;
+	}
+
 	download_callback_data_t download_data;
-	if (channel_enable_download_progress_tracking(channel_curl,
-				channel_data->url,
-				&download_data) == CHANNEL_EINIT) {
-		WARN("Failed to get total download size for URL %s.",
+	/*
+	 * In case of range do not ask the server for file size
+	 */
+	if (!channel_data->range)  {
+		if (channel_enable_download_progress_tracking(channel_curl,
+								channel_data->url,
+								&download_data) == CHANNEL_EINIT) {
+			WARN("Failed to get total download size for URL %s.",
 				channel_data->url);
 	} else
 		INFO("Total download size is %lu kB.",
-				download_data.total_download_size / 1024);
+			download_data.total_download_size / 1024);
+
+	}
 
 	if (curl_easy_setopt(channel_curl->handle, CURLOPT_CUSTOMREQUEST, "GET") !=
 	    CURLE_OK) {
@@ -1111,30 +1177,32 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 		goto cleanup_header;
 	}
 
-	struct swupdate_request req;
-	swupdate_prepare_req(&req);
-	req.dry_run = channel_data->dry_run;
-	req.source = channel_data->source;
-	if (channel_data->info) {
-		strncpy(req.info, channel_data->info,
-			  sizeof(req.info) - 1 );
-	}
-	for (int retries = 3; retries >= 0; retries--) {
-		file_handle = ipc_inst_start_ext( &req, sizeof(struct swupdate_request));
-		if (file_handle > 0)
-			break;
-		sleep(1);
-	}
-	if (file_handle < 0) {
-		ERROR("Cannot open SWUpdate IPC stream: %s", strerror(errno));
-		result = CHANNEL_EIO;
-		goto cleanup_header;
+	write_callback_t wrdata = { .this = this };
+	wrdata.channel_data = channel_data;
+	if (!channel_data->noipc) {
+		swupdate_prepare_req(&req);
+		req.dry_run = channel_data->dry_run;
+		req.source = channel_data->source;
+		if (channel_data->info) {
+			strncpy(req.info, channel_data->info,
+				sizeof(req.info) - 1 );
+		}
+		for (int retries = 3; retries >= 0; retries--) {
+			file_handle = ipc_inst_start_ext( &req, sizeof(struct swupdate_request));
+			if (file_handle > 0)
+				break;
+			sleep(1);
+		}
+		if (file_handle < 0) {
+			ERROR("Cannot open SWUpdate IPC stream: %s", strerror(errno));
+			result = CHANNEL_EIO;
+			goto cleanup_header;
+		}
 	}
 
-	write_callback_t wrdata;
-	wrdata.channel_data = channel_data;
 	wrdata.output = file_handle;
 	result_channel_callback_ipc = CHANNEL_OK;
+
 	if ((curl_easy_setopt(channel_curl->handle, CURLOPT_WRITEFUNCTION,
 			      channel_callback_ipc) != CURLE_OK) ||
 	    (curl_easy_setopt(channel_curl->handle, CURLOPT_WRITEDATA,
@@ -1217,7 +1285,14 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 
 		curlrc = curl_easy_perform(channel_curl->handle);
 		result = channel_map_curl_error(curlrc);
-		if ((result != CHANNEL_OK) && (result != CHANNEL_EAGAIN)) {
+		if (result == CHANNEL_ENONET) {
+			WARN("Lost connection. Retrying after %d seconds.",
+					channel_data->retry_sleep);
+			if (sleep(channel_data->retry_sleep) > 0) {
+				TRACE("Channel's sleep got interrupted, "
+					"retrying nonetheless now.");
+			}
+		} else if ((result != CHANNEL_OK) && (result != CHANNEL_EAGAIN)) {
 			ERROR("Channel operation returned error (%d): '%s'",
 			      curlrc, curl_easy_strerror(curlrc));
 			goto cleanup_file;
@@ -1273,7 +1348,7 @@ cleanup_file:
 	 *      so use close() here directly to issue an error in case.
 	 *      Also, for a given file handle, calling ipc_end() would make
 	 *      no semantic sense. */
-	if (close(file_handle) != 0) {
+	if (file_handle >= 0 && close(file_handle) != 0) {
 		ERROR("Channel error while closing download target handle: '%s'",
 		      strerror(errno));
 	}
@@ -1293,13 +1368,13 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 {
 	channel_curl_t *channel_curl = this->priv;
 	assert(data != NULL);
-	assert(channel_curl.handle != NULL);
+	assert(channel_curl->handle != NULL);
 
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
 	channel_data->http_response_code = 0;
 	output_data_t outdata = {};
-	write_callback_t wrdata = { .channel_data = channel_data, .outdata = &outdata };
+	write_callback_t wrdata = { .this = this, .channel_data = channel_data, .outdata = &outdata };
 
 	if ((result = channel_set_content_type(this, channel_data)) !=
 	    CHANNEL_OK) {

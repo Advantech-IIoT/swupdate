@@ -33,6 +33,7 @@
 #define SWUPDATE_ALIGN(A,S)    (((A) + (S) - 1) & ~((S) - 1))
 
 extern int loglevel;
+extern int exit_code;
 
 typedef enum {
 	SERVER_OK,
@@ -125,6 +126,7 @@ void notifier_set_color(int level, char *col);
 #endif
 
 #define STRINGIFY(...) #__VA_ARGS__
+#define PREPROCVALUE(s) STRINGIFY(s)
 #define SETSTRING(p, v) do { \
 	if (p) \
 		free(p); \
@@ -134,22 +136,6 @@ void notifier_set_color(int level, char *col);
 
 #define LG_16 4
 #define FROM_HEX(f) from_ascii (f, sizeof f, LG_16)
-#if !defined(CONFIG_DISABLE_CPIO_CRC)
-static inline bool swupdate_verify_chksum(const uint32_t chk1, const uint32_t chk2) {
-	bool ret = (chk1 == chk2);
-	if (!ret) {
-		ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
-			chk1, chk2);
-	}
-	return ret;
-}
-#else
-static inline bool swupdate_verify_chksum(
-		const uint32_t  __attribute__ ((__unused__))chk1,
-		const uint32_t  __attribute__ ((__unused__))chk2) {
-	return true;
-}
-#endif
 uintmax_t
 from_ascii (char const *where, size_t digs, unsigned logbase);
 int ascii_to_hash(unsigned char *hash, const char *s);
@@ -176,23 +162,26 @@ bool strtobool(const char *s);
 /*
  * Function to extract / copy images
  */
-typedef int (*writeimage) (void *out, const void *buf, unsigned int len);
+typedef int (*writeimage) (void *out, const void *buf, size_t len);
 
+void *saferealloc(void *ptr, size_t size);
 int openfile(const char *filename);
-int copy_write(void *out, const void *buf, unsigned int len);
+int copy_write(void *out, const void *buf, size_t len);
 #if defined(__FreeBSD__)
-int copy_write_padded(void *out, const void *buf, unsigned int len);
+int copy_write_padded(void *out, const void *buf, size_t len);
 #endif
 #if defined(__linux__)
 /* strlcpy was originally developped in FreeBSD, not present in glibc */
 size_t
 strlcpy(char *dst, const char * src, size_t size);
 #endif
-int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs,
+int copyfile(int fdin, void *out, size_t nbytes, unsigned long *offs,
 	unsigned long long seek,
 	int skip_file, int compressed, uint32_t *checksum,
 	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 int copyimage(void *out, struct img_type *img, writeimage callback);
+int copybuffer(unsigned char *inbuf, void *out, size_t nbytes, int compressed,
+	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 			int encrypted, char *ivt, unsigned char *hash);
 int openfileoutput(const char *filename);
@@ -206,6 +195,7 @@ char **splitargs(char *args, int *argc);
 char *mstrcat(const char **nodes, const char *delim);
 char** string_split(const char* a_str, const char a_delim);
 char *substring(const char *src, int first, int len);
+char *string_tolower(char *s);
 size_t snescape(char *dst, size_t n, const char *src);
 void freeargs (char **argv);
 int get_hw_revision(struct hw_type *hw);
@@ -240,7 +230,8 @@ void set_version_range(const char *minversion,
 			const char *maxversion,
 			const char *current);
 
-unsigned long long ustrtoull(const char *cp, unsigned int base);
+int size_delimiter_match(const char *size);
+unsigned long long ustrtoull(const char *cp, char **endptr, unsigned int base);
 
 const char* get_tmpdir(void);
 const char* get_tmpdirscripts(void);
@@ -254,5 +245,5 @@ int swupdate_mount(const char *device, const char *dir, const char *fstype);
 int swupdate_umount(const char *dir);
 
 /* Date / Time utilities */
-char *swupdate_time_iso8601(void);
+char *swupdate_time_iso8601(struct timeval *tv);
 #endif

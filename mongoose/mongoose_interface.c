@@ -114,12 +114,28 @@ static void restart_handler(struct mg_connection *nc, int ev, void *ev_data)
 		strncpy(msg.data.procmsg.buf, "reboot", 8);
 		msg.data.procmsg.len = 8;
 		int ret = ipc_postupdate(&msg);
-		if (ret) {
+		if (ret || msg.type != ACK) {
 			mg_http_send_error(nc, 500, "Failed to queue command");
 			return;
 		}
 
 		mg_http_send_error(nc, 201, "Device will reboot now.");
+	}
+}
+
+static int level_to_rfc_5424(int level)
+{
+	switch(level) {
+		case ERRORLEVEL:
+			return 3;
+		case WARNLEVEL:
+			return 4;
+		case INFOLEVEL:
+			return 6;
+		case TRACELEVEL:
+		case DEBUGLEVEL:
+		default:
+			return 7;
 	}
 }
 
@@ -143,31 +159,44 @@ static void broadcast(struct mg_mgr *mgr, char *str)
 
 static void *broadcast_message_thread(void *data)
 {
+	int fd = -1;
+
 	for (;;) {
 		ipc_message msg;
-		int ret = ipc_get_status(&msg);
+		int ret;
 
-		if (!ret && strlen(msg.data.status.desc) != 0) {
+		if (fd < 0)
+			fd = ipc_notify_connect();
+		/*
+		 * if still fails, try later
+		 */
+		if (fd < 0) {
+			sleep(1);
+			continue;
+		}
+
+		ret = ipc_notify_receive(&fd, &msg);
+		if (ret != sizeof(msg))
+			return NULL;
+
+		if (strlen(msg.data.notify.msg) != 0) {
 			struct mg_mgr *mgr = (struct mg_mgr *) data;
 			char text[4096];
 			char str[4160];
 
-			snescape(text, sizeof(text), msg.data.status.desc);
+			snescape(text, sizeof(text), msg.data.notify.msg);
 
 			snprintf(str, sizeof(str),
-				"{\r\n"
-				"\t\"type\": \"message\",\r\n"
-				"\t\"level\": \"%d\",\r\n"
-				"\t\"text\": \"%s\"\r\n"
-				"}\r\n",
-				(msg.data.status.error) ? 3 : 6, /* RFC 5424 */
-				text);
+					 "{\r\n"
+					 "\t\"type\": \"message\",\r\n"
+					 "\t\"level\": \"%d\",\r\n"
+					 "\t\"text\": \"%s\"\r\n"
+					 "}\r\n",
+					 level_to_rfc_5424(msg.data.notify.level), /* RFC 5424 */
+					 text);
 
 			broadcast(mgr, str);
-			continue;
 		}
-
-		usleep(50 * 1000);
 	}
 
 	return NULL;
@@ -202,10 +231,8 @@ static void *broadcast_progress_thread(void *data)
 		if (ret != sizeof(msg))
 			return NULL;
 
-		if (msg.status == PROGRESS)
-			continue;
-
-		if (msg.status != status || msg.status == FAILURE) {
+		if (msg.status != PROGRESS &&
+		    (msg.status != status || msg.status == FAILURE)) {
 			status = msg.status;
 
 			snescape(escaped, sizeof(escaped), get_status_string(msg.status));

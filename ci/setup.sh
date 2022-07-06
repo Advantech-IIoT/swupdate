@@ -52,8 +52,13 @@ $_SUDO apt-get install -y \
     libwebsockets-dev \
     libgpiod-dev \
     libcurl4-openssl-dev \
+    libpci-dev \
     gawk \
     cpio \
-    wget
+    meson \
+    ninja-build \
+    libzstd-dev \
+    wget \
+    python3
 
 $_SUDO ln -sf /usr/lib/x86_64-linux-gnu/pkgconfig/lua5.2.pc /usr/lib/x86_64-linux-gnu/pkgconfig/lua.pc

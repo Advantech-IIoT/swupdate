@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-2.0-only
 
-VERSION = 2021
-PATCHLEVEL = 04
+VERSION = 2022
+PATCHLEVEL = 05
 SUBLEVEL = 0
 EXTRAVERSION =
 NAME =
@@ -219,7 +219,7 @@ LINUXINCLUDE    := -Iinclude \
                    -include include/generated/autoconf.h
 
 KBUILD_CPPFLAGS :=
-KBUILD_CFLAGS   := 
+KBUILD_CFLAGS   :=
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__
@@ -363,8 +363,8 @@ include $(srctree)/Makefile.flags
 # This allow a user to issue only 'make' to build a kernel including modules
 # Defaults to vmlinux, but the arch makefile usually adds further targets
 
-objs-y		:= core handlers recovery_ui
-libs-y		:= corelib mongoose parser suricatta bootloader fs
+objs-y		:= core handlers bootloader recovery_ui
+libs-y		:= corelib mongoose parser suricatta fs
 bindings-y	:= bindings
 tools-y		:= tools
 
@@ -380,7 +380,7 @@ swupdate-libs	:= $(patsubst %,%/lib.a, $(libs-y))
 swupdate-all	:= $(swupdate-objs) $(swupdate-libs)
 
 tools-dirs	:= $(tools-y)
-tools-objs	:= $(patsubst %,%/built-in.o, $(tools-y))
+tools-objs	:= $(patsubst %,%/lib.a, $(tools-y))
 tools-bins	:= $(patsubst $(srctree)/$(tools-y)/%.c,$(tools-y)/%,$(wildcard $(srctree)/$(tools-y)/*.c))
 tools-bins-unstr:= $(patsubst %,%_unstripped,$(tools-bins))
 tools-all	:= $(tools-objs)
@@ -466,8 +466,7 @@ endif
 swupdate: .cfg-sanity-check swupdate_unstripped
 	$(call cmd,strip)
 
-.tools-built-in: tools/built-in.o
-	@touch tools/built-in.o
+.tools-built-in: tools/lib.a
 	@touch .tools-built-in
 
 ${tools-bins}: ${swupdate-ipc-lib} ${tools-objs} ${swupdate-libs} .tools-built-in

@@ -10,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -40,6 +41,7 @@ struct notify_elem {
 STAILQ_HEAD(notifylist, notify_elem);
 
 static struct notifylist clients;
+static pthread_mutex_t clients_mutex;
 
 /*
  * Notification can be sent even by other
@@ -203,7 +205,9 @@ int register_notifier(notifier client)
 		return -ENOMEM;
 	newclient->client = client;
 
+	pthread_mutex_lock(&clients_mutex);
 	STAILQ_INSERT_TAIL(&clients, newclient, next);
+	pthread_mutex_unlock(&clients_mutex);
 
 	return 0;
 }
@@ -222,6 +226,7 @@ void notify(RECOVERY_STATUS status, int error, int level, const char *msg)
 
 	if (pid == getpid()) {
 		if (notifyfd > 0) {
+			memset(&notifymsg, 0, sizeof(notifymsg));
 			notifymsg.status = status;
 			notifymsg.error = error;
 			notifymsg.level = level;
@@ -234,8 +239,10 @@ void notify(RECOVERY_STATUS status, int error, int level, const char *msg)
 				sizeof(struct sockaddr_un));
 		}
 	} else { /* Main process */
+		pthread_mutex_lock(&clients_mutex);
 		STAILQ_FOREACH(elem, &clients, next)
 			(elem->client)(status, error, level, msg);
+		pthread_mutex_unlock(&clients_mutex);
 	}
 }
 
@@ -424,6 +431,10 @@ static void *notifier_thread (void __attribute__ ((__unused__)) *data)
 		exit(2);
 	}
 
+	if (fcntl(serverfd, F_SETFD, FD_CLOEXEC) < 0) {
+		fprintf(stderr, "Could not set %d as cloexec: %s", serverfd, strerror(errno));
+	}
+
 #if defined(__FreeBSD__)
 	setup_socket_cleanup(&notify_server);
 #endif
@@ -503,10 +514,15 @@ void notify_init(void)
 		setup_socket_cleanup(&notify_client);
 #endif
 		notifyfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+
 		if (notifyfd < 0) {
 			printf("Error creating notifier socket for pid %d", pid);
 			return;
 		}
+
+		if (fcntl(notifyfd, F_SETFD, FD_CLOEXEC) < 0)
+			WARN("Could not set %d as cloexec: %s", notifyfd, strerror(errno));
+
 		if (bind(notifyfd, (const struct sockaddr *) &notify_client,
 			sizeof(struct sockaddr_un)) < 0) {
 				/* Trace cannot work here, use printf */
@@ -523,6 +539,7 @@ void notify_init(void)
 		 */
 		addr_init(&notify_server, "NotifyServer");
 		STAILQ_INIT(&clients);
+		pthread_mutex_init(&clients_mutex, NULL);
 		register_notifier(console_notifier);
 		register_notifier(process_notifier);
 		register_notifier(progress_notifier);

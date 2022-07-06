@@ -406,7 +406,7 @@ static int parse_common_attributes(parsertype p, void *elem, struct img_type *im
 	get_hash_value(p, elem, image->sha256);
 
 	/* convert the offset handling multiplicative suffixes */
-	image->seek = ustrtoull(seek_str, 0);
+	image->seek = ustrtoull(seek_str, NULL, 0);
 	if (errno){
 		ERROR("offset argument: ustrtoull failed");
 		return -1;
@@ -974,7 +974,6 @@ int parse_cfg (struct swupdate_cfg *swcfg, const char *filename)
 		fprintf(stderr, "%s:%d - %s\n", config_error_file(&cfg),
 			config_error_line(&cfg), config_error_text(&cfg));
 		config_destroy(&cfg);
-		ERROR(" ..exiting");
 		return -1;
 	}
 
@@ -996,6 +995,9 @@ int parse_cfg (struct swupdate_cfg __attribute__ ((__unused__)) *swcfg,
 #endif
 
 #ifdef CONFIG_JSON
+
+#define JSON_OBJECT_FREED 1
+
 int parse_json(struct swupdate_cfg *swcfg, const char *filename)
 {
 	int fd, ret;
@@ -1049,7 +1051,9 @@ int parse_json(struct swupdate_cfg *swcfg, const char *filename)
 
 	ret = parser(p, cfg, swcfg);
 
-	json_object_put(cfg);
+	if (json_object_put(cfg) != JSON_OBJECT_FREED) {
+		WARN("Leaking cfg json object");
+	}
 
 	free(string);
 

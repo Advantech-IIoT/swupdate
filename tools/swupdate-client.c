@@ -100,15 +100,18 @@ static int end(RECOVERY_STATUS status)
 {
 	end_status = (status == SUCCESS) ? EXIT_SUCCESS : EXIT_FAILURE;
 
-	fprintf(stdout, "Swupdate %s\n",
+	fprintf(stdout, "SWUpdate %s\n",
 		status == FAILURE ? "*failed* !" :
 			"was successful !");
 
 	if (status == SUCCESS && run_postupdate) {
 		fprintf(stdout, "Executing post-update actions.\n");
 		ipc_message msg;
-		if (ipc_postupdate(&msg) != 0)
+		msg.data.procmsg.len = 0;
+		if (ipc_postupdate(&msg) != 0 || msg.type != ACK) {
 			fprintf(stderr, "Running post-update failed!\n");
+			end_status = EXIT_FAILURE;
+		}
 	}
 
 	pthread_mutex_lock(&mymutex);
