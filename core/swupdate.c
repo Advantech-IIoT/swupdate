@@ -521,6 +521,20 @@ int main(int argc, char **argv)
 
 	memset(fname, 0, sizeof(fname));
 
+	print_registered_bootloaders();
+	if (!get_bootloader()) {
+		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
+			ERROR("Default bootloader interface '" PREPROCVALUE(
+			    BOOTLOADER_DEFAULT) "' couldn't be loaded.");
+			INFO("Check that the bootloader interface shared library is present.");
+			INFO("Or chose another bootloader interface by supplying -B <loader>.");
+			exit(EXIT_FAILURE);
+		}
+		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
+	} else {
+		INFO("Using bootloader interface: %s", get_bootloader());
+	}
+
 	bool bSDBoot    = false;
 	bSDBoot = is_boot_from_SD();
 	if (!bSDBoot) {
