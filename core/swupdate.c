@@ -206,21 +206,28 @@ struct swupdate_cfg *get_swupdate_cfg(void) {
 }
 
 static void get_args(int *argc, char ***argv) {
+	// set default bootloader before using it
+	if (!get_bootloader()) {
+		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
+			ERROR("Default bootloader interface '" PREPROCVALUE(
+				BOOTLOADER_DEFAULT) "' couldn't be loaded.");
+			INFO("Check that the bootloader interface shared library is present.");
+			INFO("Or chose another bootloader interface by supplying -B <loader>.");
+			exit(EXIT_FAILURE);
+		}
+		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
+	}
+
     char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
-    fprintf(stdout, ">>> get_args 1\n");
-    fprintf(stdout, ">>> get_args command=%s\n", command);
 
     if (*argc <= 1 && command != NULL) {
         const char *arg = strtok(command, "\n");
         if (arg != NULL && !strcmp(arg, "/usr/bin/swupdate")) {
-	    fprintf(stdout, ">>> get_args 2\n");
             *argv = (char **) malloc(sizeof(char *) * 100);
             (*argv)[0] = strdup(arg);
-	    fprintf(stdout, ">>> 2 get_args arg=%s\n", arg);
             for (*argc = 1; *argc < 100; ++*argc) {
                 if ((arg = strtok(NULL, "\n")) == NULL) break;
                 (*argv)[*argc] = strdup(arg);
-		fprintf(stdout, ">>> 3 get_args arg=%s\n", arg);
             }
             printf("Got arguments from bootloader env. \n");
         } else if (command[0] != 0 && command[0] != 255) {
@@ -518,20 +525,6 @@ int main(int argc, char **argv)
 	strcat(main_options, "D");
 
 	memset(fname, 0, sizeof(fname));
-
-	print_registered_bootloaders();
-	if (!get_bootloader()) {
-		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
-			ERROR("Default bootloader interface '" PREPROCVALUE(
-			    BOOTLOADER_DEFAULT) "' couldn't be loaded.");
-			INFO("Check that the bootloader interface shared library is present.");
-			INFO("Or chose another bootloader interface by supplying -B <loader>.");
-			exit(EXIT_FAILURE);
-		}
-		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
-	} else {
-		INFO("Using bootloader interface: %s", get_bootloader());
-	}
 
 	bool bSDBoot    = false;
 	bSDBoot = is_boot_from_SD();
