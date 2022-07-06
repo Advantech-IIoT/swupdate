@@ -147,19 +147,6 @@ void get_sw_versions(swupdate_cfg_handle  __attribute__ ((__unused__))*handle,
 }
 #endif
 
-static const char ACCEPTED_CHARS[] = "0123456789.";
-
-static bool is_oldstyle_version(const char* version_string)
-{
-	while (*version_string)
-	{
-		if (strchr(ACCEPTED_CHARS, *version_string) == NULL)
-			return false;
-		++version_string;
-	}
-	return true;
-}
-
 /*
  * convert a version string into a number
  * version string is in the format:
@@ -170,30 +157,52 @@ static bool is_oldstyle_version(const char* version_string)
  * Also major.minor or major.minor.revision are allowed
  * The conversion generates a 64 bit value that can be compared
  */
-static __u64 version_to_number(const char *version_string)
+static bool version_to_number(const char *version_string, __u64 *version_number)
 {
 	char **versions = NULL;
 	char **ver;
 	unsigned int count = 0;
+	bool valid = false;
 	__u64 version = 0;
 
 	versions = string_split(version_string, '.');
-	for (ver = versions; *ver != NULL; ver++, count ++) {
-		if (count < 4) {
-			unsigned long int fld = strtoul(*ver, NULL, 10);
-			/* check for return of strtoul, mandatory */
-			if (fld != ULONG_MAX) {
-				fld &= 0xffff;
-				version = (version << 16) | fld;
-			}
+	for (ver = versions; *ver != NULL && count < 4; ver++, count++) {
+		unsigned long int fld = strtoul(*ver, NULL, 10);
+		/* check for return of strtoul, mandatory */
+		if (fld > 0xffff) {
+			DEBUG("Version %s had an element > 65535, falling back to semver",
+			      version_string);
+			goto out;
 		}
-		free(*ver);
+		version = (version << 16) | fld;
 	}
-	if ((count < 4) && (count > 0))
+	if (count >= 4) {
+		DEBUG("Version %s had more than 4 numbers, trailing numbers will be ignored",
+		      version_string);
+	} else if (count > 0) {
 		version <<= 16 * (4 - count);
-	free(versions);
+	}
+	*version_number = version;
+	valid = true;
 
-	return version;
+out:
+	free_string_array(versions);
+
+	return valid;
+}
+
+static const char ACCEPTED_CHARS[] = "0123456789.";
+
+static bool is_oldstyle_version(const char *version_string, __u64 *version_number)
+{
+	const char *ver = version_string;
+	while (*ver)
+	{
+		if (strchr(ACCEPTED_CHARS, *ver) == NULL)
+			return false;
+		++ver;
+	}
+	return version_to_number(version_string, version_number);;
 }
 
 /*
@@ -209,12 +218,15 @@ static __u64 version_to_number(const char *version_string)
  */
 int compare_versions(const char* left_version, const char* right_version)
 {
-	if (is_oldstyle_version(left_version) && is_oldstyle_version(right_version))
-	{
-		__u64 left_u64 = version_to_number(left_version);
-		__u64 right_u64 = version_to_number(right_version);
 
-		DEBUG("Comparing old-style versions '%s' <-> '%s'", left_version, right_version);
+	__u64 left_u64;
+	__u64 right_u64;
+
+	if (is_oldstyle_version(left_version, &left_u64)
+	    && is_oldstyle_version(right_version, &right_u64))
+	{
+		DEBUG("Comparing old-style versions '%s' <-> '%s'",
+		      left_version, right_version);
 		TRACE("Parsed: '%llu' <-> '%llu'", left_u64, right_u64);
 
 		if (left_u64 < right_u64)
@@ -224,41 +236,39 @@ int compare_versions(const char* left_version, const char* right_version)
 		else
 			return 0;
 	}
-	else
-	{
-		semver_t left_sem = {};
-		semver_t right_sem = {};
-		int comparison;
 
-		/*
-		 * Check if semantic version is possible
-		 */
-		if (!semver_parse(left_version, &left_sem) && !semver_parse(right_version, &right_sem)) {
-			DEBUG("Comparing semantic versions '%s' <-> '%s'", left_version, right_version);
-			if (loglevel >= TRACELEVEL)
-			{
-				char left_rendered[SWUPDATE_GENERAL_STRING_SIZE];
-				char right_rendered[SWUPDATE_GENERAL_STRING_SIZE];
+	semver_t left_sem = {};
+	semver_t right_sem = {};
+	int comparison;
 
-				left_rendered[0] = right_rendered[0] = '\0';
+	/*
+	 * Check if semantic version is possible
+	 */
+	if (!semver_parse(left_version, &left_sem) && !semver_parse(right_version, &right_sem)) {
+		DEBUG("Comparing semantic versions '%s' <-> '%s'", left_version, right_version);
+		if (loglevel >= TRACELEVEL)
+		{
+			char left_rendered[SWUPDATE_GENERAL_STRING_SIZE];
+			char right_rendered[SWUPDATE_GENERAL_STRING_SIZE];
 
-				semver_render(&left_sem, left_rendered);
-				semver_render(&right_sem, right_rendered);
-				TRACE("Parsed: '%s' <-> '%s'", left_rendered, right_rendered);
-			}
+			left_rendered[0] = right_rendered[0] = '\0';
 
-			comparison = semver_compare(left_sem, right_sem);
-			semver_free(&left_sem);
-			semver_free(&right_sem);
-			return comparison;
+			semver_render(&left_sem, left_rendered);
+			semver_render(&right_sem, right_rendered);
+			TRACE("Parsed: '%s' <-> '%s'", left_rendered, right_rendered);
 		}
+
+		comparison = semver_compare(left_sem, right_sem);
 		semver_free(&left_sem);
 		semver_free(&right_sem);
-
-		/*
-		 * Last attempt: just compare the two strings
-		 */
-		DEBUG("Comparing lexicographically '%s' <-> '%s'", left_version, right_version);
-		return strcmp(left_version, right_version);
+		return comparison;
 	}
+	semver_free(&left_sem);
+	semver_free(&right_sem);
+
+	/*
+	 * Last attempt: just compare the two strings
+	 */
+	DEBUG("Comparing lexicographically '%s' <-> '%s'", left_version, right_version);
+	return strcmp(left_version, right_version);
 }

@@ -108,7 +108,7 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, 
 		close(fdout);
 		return -1;
 	}
-	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+	if (!swupdate_verify_chksum(checksum, &fdh)) {
 		close(fdout);
 		return -1;
 	}
@@ -230,7 +230,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 					close(fdout);
 					return -1;
 				}
-				if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+				if (!swupdate_verify_chksum(checksum, &fdh)) {
 					close(fdout);
 					return -1;
 				}
@@ -241,7 +241,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				if (copyfile(fd, &fdout, fdh.size, &offset, 0, skip, 0, &checksum, NULL, false, NULL, NULL) < 0) {
 					return -1;
 				}
-				if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+				if (!swupdate_verify_chksum(checksum, &fdh)) {
 					return -1;
 				}
 				break;
@@ -401,7 +401,7 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 		ret = -EFAULT;
 		goto no_copy_output;
 	}
-	if (get_cpiohdr(buf, &fdh.size, &fdh.namesize, &fdh.chksum) < 0) {
+	if (get_cpiohdr(buf, &fdh) < 0) {
 		ERROR("CPIO Header corrupted, cannot be parsed");
 		ret = -EINVAL;
 		goto no_copy_output;
@@ -493,6 +493,26 @@ no_copy_output:
 	cleanup_files(software);
 
 	return ret;
+}
+
+static bool update_transaction_state(struct swupdate_cfg *software, update_state_t newstate)
+{
+	if (!software->parms.dry_run && software->bootloader_transaction_marker) {
+		if (newstate == STATE_INSTALLED) {
+			bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+			bootloader_env_unset(BOOTVAR_TRANSACTION);
+		}
+		else {
+			bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(newstate));
+		}
+	}
+	if (!software->parms.dry_run
+	    && software->bootloader_state_marker
+	    && save_state(newstate) != SERVER_OK) {
+		WARN("Cannot persistently store %s update state.", get_state_string(newstate));
+		return false;
+	}
+	return true;
 }
 
 void *network_initializer(void *data)
@@ -606,35 +626,20 @@ void *network_initializer(void *data)
 			 * must be successful. Set we have
 			 * initiated an update
 			 */
-			if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-				bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(STATE_IN_PROGRESS));
-			}
+			update_transaction_state(software, STATE_IN_PROGRESS);
 
 			notify(RUN, RECOVERY_NO_ERROR, INFOLEVEL, "Installation in progress");
 			ret = install_images(software);
 			if (ret != 0) {
-				if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-					bootloader_env_set(BOOTVAR_TRANSSTATUS, get_state_string(STATE_FAILED));
-				}
+				update_transaction_state(software, STATE_FAILED);
 				notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
 				inst.last_install = FAILURE;
-				if (!software->parms.dry_run
-				    && software->bootloader_state_marker
-				    && save_state(STATE_FAILED) != SERVER_OK) {
-					WARN("Cannot persistently store FAILED update state.");
-				}
 			} else {
 				/*
 				 * Clear the recovery variable to indicate to bootloader
 				 * that it is not required to start recovery again
 				 */
-				if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-					bootloader_env_unset(BOOTVAR_TRANSSTATUS);
-					bootloader_env_unset(BOOTVAR_TRANSACTION);
-				}
-				if (!software->parms.dry_run
-				    && software->bootloader_state_marker
-				    && save_state(STATE_INSTALLED) != SERVER_OK) {
+				if (!update_transaction_state(software, STATE_INSTALLED)) {
 					ERROR("Cannot persistently store INSTALLED update state.");
 					notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
 					inst.last_install = FAILURE;
@@ -648,6 +653,7 @@ void *network_initializer(void *data)
 			notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Image invalid or corrupted. Not installing ...");
 		}
 
+		swupdate_progress_inc_step("", "");
 		swupdate_progress_end(inst.last_install);
 
 		save_update_result(inst.last_install);
@@ -657,12 +663,6 @@ void *network_initializer(void *data)
 		 */
 		software->parms = parms;
 
-		pthread_mutex_lock(&stream_mutex);
-		inst.status = IDLE;
-		pthread_mutex_unlock(&stream_mutex);
-		TRACE("Main thread sleep again !");
-		notify(IDLE, RECOVERY_NO_ERROR, INFOLEVEL, "Waiting for requests...");
-
 		/* release temp files we may have created */
 		cleanup_files(software);
 
@@ -670,6 +670,12 @@ void *network_initializer(void *data)
 		swupdate_remove_directory(SCRIPTS_DIR_SUFFIX);
 		swupdate_remove_directory(DATADST_DIR_SUFFIX);
 #endif
+
+		pthread_mutex_lock(&stream_mutex);
+		inst.status = IDLE;
+		pthread_mutex_unlock(&stream_mutex);
+		TRACE("Main thread sleep again !");
+		notify(IDLE, RECOVERY_NO_ERROR, INFOLEVEL, "Waiting for requests...");
 	}
 
 	pthread_exit((void *)0);

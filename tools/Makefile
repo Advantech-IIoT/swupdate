@@ -11,9 +11,7 @@
 lib-y += \
 	 swupdate-client.o \
 	 swupdate-progress.o \
-	 swupdate-hawkbitcfg.o \
-	 swupdate-sendtohawkbit.o \
-	 swupdate-sysrestart.o
+	 swupdate-ipc.o
 
 # # Uncomment the next lines to integrate the compiling/linking of
 # # any .c files placed alongside the above "official" tools in the

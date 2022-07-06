@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 ====================
 Mongoose daemon mode
 ====================
@@ -7,13 +10,6 @@ Introduction
 
 Mongoose is a daemon mode of SWUpdate that provides a web server, web
 interface and web application.
-
-Mongoose supports two different web interface versions although the
-first version is deprecated and should not be used. The second version
-uses a WebSocket for the asynchronous communication between web
-server and web application, allows a visualization of image update
-processes, restarts the system via a post update command and
-automatically reloads the web page after a restart or connection lost.
 
 The web application in ``web-app`` uses the `Node.js`_ package manager
 and `gulp`_ as build tool. It depends on `Bootstrap 4`_,
@@ -30,7 +26,7 @@ Startup
 -------
 
 After having configured and compiled SWUpdate with enabled mongoose web
-server and web interface version 2 support,
+server:
 
 .. code:: bash
 

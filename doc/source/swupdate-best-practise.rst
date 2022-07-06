@@ -3,7 +3,7 @@
         SPDX-License-Identifier: GPL-2.0-only
 
 **********************
-Swupdate Best Practice
+SWUpdate Best Practice
 **********************
 
 This is intended as general rule to integrate SWUpdate into a custom project.
@@ -188,13 +188,13 @@ is :
 
 ::
 
-        sha256 = "@<name of artifact>"
+        sha256 = "$swupdate_get_sha256(<name of artifact>)"
 
 You can again use variable substitution for artifact names. Example:
 
 ::
 
-        sha256 = "@@@SYSTEM_IMAGE@@-@@MACHINE@@@@SWUPDATE_IMAGES_FSTYPES[@@SYSTEM_IMAGE@@]@@";
+        sha256 = "$swupdate_get_sha256(@@SYSTEM_IMAGE@@-@@MACHINE@@@@SWUPDATE_IMAGES_FSTYPES[@@SYSTEM_IMAGE@@]@@)";
 
 Please note that each variable is double delimited (at the beginning and at the end) by `@@`.
 

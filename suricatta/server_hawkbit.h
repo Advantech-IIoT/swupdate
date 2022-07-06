@@ -29,6 +29,7 @@ typedef struct {
 	bool polling_interval_from_server;
 	bool debug;
 	struct dict configdata;
+	struct dict httpheaders;
 	bool has_to_send_configData;
 	char *configData_url;
 	char *cancel_url;
@@ -44,6 +45,8 @@ typedef struct {
 	char *cached_file;
 	bool usetokentodwl;
 	unsigned int initial_report_resend_period;
+	int server_status;
+	time_t server_status_time;
 } server_hawkbit_t;
 
 extern server_hawkbit_t server_hawkbit;

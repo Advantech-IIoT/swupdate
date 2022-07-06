@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
 #ifdef __FreeBSD__
 #include <sys/disk.h>
@@ -149,8 +150,7 @@ static int install_raw_image(struct img_type *img,
 	return ret;
 }
 
-static int copy_raw_image(struct img_type *img,
-	void __attribute__ ((__unused__)) *data)
+static int copy_raw_image(struct img_type *img, void *data)
 {
 	int ret;
 	int fdout, fdin;
@@ -159,6 +159,30 @@ static int copy_raw_image(struct img_type *img,
 	uint32_t checksum;
 	unsigned long offset = 0;
 	size_t size;
+	struct stat statbuf;
+	struct script_handler_data *script_data;
+
+	if (!data)
+		return -1;
+
+	script_data = data;
+
+	proplist = dict_get_list(&img->properties, "type");
+	if (proplist) {
+		entry = LIST_FIRST(proplist);
+		/* check if this should just run as pre or post install */
+		if (entry) {
+			if (strcmp(entry->value, "preinstall") && strcmp(entry->value, "postinstall")) {
+				ERROR("Type can be just preinstall or postinstall");
+				return -EINVAL;
+			}
+			script_fn type = !strcmp(entry->value, "preinstall") ? PREINSTALL : POSTINSTALL;
+			if (type != script_data->scriptfn) {
+				TRACE("Script set to %s, skipping", entry->value);
+				return 0;
+			}
+		}
+	}
 
 	proplist = dict_get_list(&img->properties, "copyfrom");
 
@@ -168,13 +192,24 @@ static int copy_raw_image(struct img_type *img,
 	}
 	fdin = open(entry->value, O_RDONLY);
 	if (fdin < 0) {
-		TRACE("Device %s cannot be opened: %s",
+		ERROR("Device %s cannot be opened: %s",
 			entry->value, strerror(errno));
 		return -ENODEV;
 	}
 
-	if (ioctl(fdin, BLKGETSIZE64, &size) < 0) {
+	ret = fstat(fdin, &statbuf);
+	if (ret < 0) {
+		ERROR("Cannot be retrieved information on %s", entry->value);
+		close(fdin);
+		return -ENODEV;
+	}
+
+	if ((statbuf.st_mode & S_IFMT) == S_IFREG)
+		size = statbuf.st_size;
+	else if (ioctl(fdin, BLKGETSIZE64, &size) < 0) {
 		ERROR("Cannot get size of %s", entry->value);
+		close(fdin);
+		return -ENODEV;
 	}
 
 	fdout = open(img->device, O_RDWR);
@@ -185,6 +220,7 @@ static int copy_raw_image(struct img_type *img,
 		return -ENODEV;
 	}
 
+	TRACE("Copying %s to %s", entry->value, img->device);
 	ret = copyfile(fdin,
 			&fdout,
 			size,
@@ -198,6 +234,7 @@ static int copy_raw_image(struct img_type *img,
 			NULL, /* no IVT */
 			NULL);
 
+	close(fdin);
 	close(fdout);
 	return ret;
 }
@@ -206,6 +243,7 @@ static int install_raw_file(struct img_type *img,
 	void __attribute__ ((__unused__)) *data)
 {
 	char path[255];
+	char tmp_path[255];
 	int fdout;
 	int ret = 0;
 	int use_mount = (strlen(img->device) && strlen(img->filesystem)) ? 1 : 0;
@@ -237,8 +275,16 @@ static int install_raw_file(struct img_type *img,
 		}
 	}
 
-	TRACE("Installing file %s on %s",
-		img->fname, path);
+	if (strtobool(dict_get_value(&img->properties, "atomic-install"))) {
+		if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path) >= (int)sizeof(tmp_path)) {
+			ERROR("Temp path too long: %s.tmp", img->path);
+			return -1;
+		}
+	}
+	else {
+		snprintf(tmp_path, sizeof(tmp_path), "%s", path);
+	}
+	TRACE("Installing file %s on %s", img->fname, tmp_path);
 
 	if (strtobool(dict_get_value(&img->properties, "create-destination"))) {
 		TRACE("Creating path %s", path);
@@ -249,7 +295,7 @@ static int install_raw_file(struct img_type *img,
 		}
 	}
 
-	fdout = openfileoutput(path);
+	fdout = openfileoutput(tmp_path);
 	if (fdout < 0)
 		return fdout;
 	if (!img_check_free_space(img, fdout)) {
@@ -260,7 +306,21 @@ static int install_raw_file(struct img_type *img,
 	if (ret< 0) {
 		ERROR("Error copying extracted file");
 	}
+
+	if(fsync(fdout)) {
+		ERROR("Error writing %s to disk: %s", tmp_path, strerror(errno));
+		return -1;
+	}
+
 	close(fdout);
+
+	if (strtobool(dict_get_value(&img->properties, "atomic-install"))) {
+		TRACE("Renaming file %s to %s", tmp_path, path);
+		if(rename(tmp_path, path)) {
+			ERROR("Error renaming %s to %s: %s", tmp_path, path, strerror(errno));
+			return -1;
+		}
+	}
 
 	if (use_mount) {
 		swupdate_umount(DATADST_DIR);

@@ -26,6 +26,7 @@ tests-$(CONFIG_SIGNED_IMAGES) += test_verify
 endif
 tests-$(CONFIG_SURICATTA_HAWKBIT) += test_json
 tests-$(CONFIG_SURICATTA_HAWKBIT) += test_server_hawkbit
+tests-y += test_util
 
 ccflags-y += -I$(src)/../
 
@@ -35,7 +36,7 @@ tests-lnk  = $(addsuffix .lnk, $(TARGETS))
 targets   += $(addsuffix .o,   $(tests-y))
 
 ifneq ($(CONFIG_EXTRA_LDFLAGS),)
-EXTRA_LDFLAGS += $(strip $(subst ",,$(CONFIG_EXTRA_LDFLAGS)))#"))
+EXTRA_LDFLAGS += $($(STRIP) $(subst ",,$(CONFIG_EXTRA_LDFLAGS)))#"))
 endif
 
 ## transfer __mock_*() functions to according linker flags via rudimentary regex awk parsing
@@ -68,7 +69,7 @@ tests:
 endif
 
 $(obj)/%.lnk: $(obj)/%.o $(objtree)/core/built-in.o
-	$(Q)strip -N main -o $(objtree)/core/built-in.o.tmp $(objtree)/core/built-in.o
+	$(Q)$(STRIP) -N main -o $(objtree)/core/built-in.o.tmp $(objtree)/core/built-in.o
 	$(Q)$(call cmd,linktestexe)
 
 DATADIR := test/data

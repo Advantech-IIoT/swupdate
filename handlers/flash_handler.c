@@ -119,7 +119,7 @@ static int flash_write_nand(int mtdnum, struct img_type *img)
 		return -EINVAL;
 	}
 
-	if(flash_erase_sector(mtdnum, img->offset, img->size)) {
+	if(flash_erase_sector(mtdnum, img->seek, img->size)) {
 		ERROR("I cannot erasing %s",
 			img->device);
 		return -1;
@@ -301,7 +301,7 @@ static int flash_write_nor(int mtdnum, struct img_type *img)
 		return -ENODEV;
 	}
 
-	if(flash_erase_sector(mtdnum, img->offset, img->size)) {
+	if(flash_erase_sector(mtdnum, img->seek, img->size)) {
 		ERROR("I cannot erasing %s",
 			img->device);
 		return -1;
@@ -314,13 +314,13 @@ static int flash_write_nor(int mtdnum, struct img_type *img)
 	}
 
 	ret = copyimage(&fdout, img, NULL);
+	close(fdout);
 
 	/* tell 'nbytes == 0' (EOF) from 'nbytes < 0' (read error) */
 	if (ret < 0) {
 		ERROR("Failure installing into: %s", img->device);
 		return -1;
 	}
-	close(fdout);
 	return 0;
 }
 

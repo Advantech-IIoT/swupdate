@@ -52,7 +52,6 @@ static int grubenv_open(struct grubenv_t *grubenv)
 	buf = calloc(1, size + 1);
 	if (!buf) {
 		ERROR("Not enough memory for environment");
-		fclose(fp);
 		ret = -ENOMEM;
 		goto cleanup;
 	}
@@ -258,7 +257,7 @@ static inline void grubenv_close(struct grubenv_t *grubenv)
 /* I feel that '#' and '=' characters should be forbidden. Although it's not
  * explicitly mentioned in original grub env code, they may cause unexpected
  * behavior */
-int bootloader_env_set(const char *name, const char *value)
+static int do_env_set(const char *name, const char *value)
 {
 	static struct grubenv_t grubenv;
 	int ret;
@@ -280,7 +279,7 @@ cleanup:
 	return ret;
 }
 
-int bootloader_env_unset(const char *name)
+static int do_env_unset(const char *name)
 {
 	static struct grubenv_t grubenv;
 	int ret = 0;
@@ -301,7 +300,7 @@ cleanup:
 	return ret;
 }
 
-char *bootloader_env_get(const char *name)
+static char *do_env_get(const char *name)
 {
 	static struct grubenv_t grubenv;
 	char *value = NULL, *var;
@@ -322,7 +321,7 @@ cleanup:
 
 }
 
-int bootloader_apply_list(const char *script)
+static int do_apply_list(const char *script)
 {
 	static struct grubenv_t grubenv;
 	int ret = 0;
@@ -342,4 +341,17 @@ int bootloader_apply_list(const char *script)
 cleanup:
 	grubenv_close(&grubenv);
 	return ret;
+}
+
+static bootloader grub = {
+	.env_get = &do_env_get,
+	.env_set = &do_env_set,
+	.env_unset = &do_env_unset,
+	.apply_list = &do_apply_list
+};
+
+__attribute__((constructor))
+static void grub_probe(void)
+{
+	(void)register_bootloader("grub", &grub);
 }

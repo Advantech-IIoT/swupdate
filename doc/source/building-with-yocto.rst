@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 ==================================
 meta-swupdate: building with Yocto
 ==================================
@@ -65,7 +68,6 @@ against it. To use it as replacement for u-boot-fw-utils:
 ::
 
                 CONFIG_UBOOT=y
-                CONFIG_UBOOT_NEWAPI=y
 
 With this library, you can simply pass the default environment as file (u-boot-initial-env).
 It is recommended for new project to switch to the new library to become independent from
@@ -123,7 +125,7 @@ generating the SWU. The class defines new variables, all of them have the prefix
   process using CMS mechanism. It is available if SWUPDATE_SIGNING is set to
   CMS.
 - **SWUPDATE_CMS_CERT** : this is the file with the certificate used in signing
-  process using using CMS method. It is available if SWUPDATE_SIGNING is
+  process using CMS method. It is available if SWUPDATE_SIGNING is
   set to CMS.
 
 - **SWUPDATE_AES_FILE** : this is the file with the AES password to encrypt artifact. A new `fstype` is
@@ -132,7 +134,7 @@ generating the SWU. The class defines new variables, all of them have the prefix
 
   ::
 
-                openssl enc -aes-256-cbc -k <PASSPHRASE> -P -md sha1 > $SWUPDATE_AES_FILE
+                openssl enc -aes-256-cbc -k <PASSPHRASE> -P -md sha1 -nosalt > $SWUPDATE_AES_FILE
 
   To use it, it is enough to add IMAGE_FSTYPES += "enc" to the  artifact. SWUpdate supports decryption of
   compressed artifact, such as
@@ -151,13 +153,13 @@ is signed. Each artifact must have the attribute:
 
 ::
 
-        sha256 = "@artifact-file-name"
+        sha256 = "$swupdate_get_sha256(artifact-file-name)"
 
 For example, to add sha256 to the standard Yocto core-image-full-cmdline:
 
 ::
 
-        sha256 = "@core-image-full-cmdline-machine.ubifs";
+        sha256 = "$swupdate_get_sha256(core-image-full-cmdline-machine.ubifs)";
 
 
 The name of the file must be the same as in deploy directory.
@@ -217,6 +219,24 @@ Or combined with a different package name:
         filename = "packed-bootloader";
         ...
         version = "@SWU_AUTO_VERSION:u-boot@PKGV";
+
+Using checksum for version
+--------------------------
+
+It is possible to use the hash of an artifact as the version in order to use
+"install-if-different".  This allows versionless artifacts to be skipped if the
+artifact in the update matches the currently installed artifact.
+
+In order to use the hash as the version, the sha256 hash file placeholder
+described above in Automatic sha256 in sw-description must be used for version.
+
+Each artifact must have the attribute:
+
+::
+
+        version = "@artifact-file-name"
+
+The name of the file must be the same as in deploy directory.
 
 Template for recipe using the class
 -----------------------------------

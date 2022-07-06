@@ -66,11 +66,19 @@ typedef struct {
 	bool usessl;
 	bool strictssl;
 	bool nocheckanswer;
+	bool noipc;	/* do not send to SWUpdate IPC if set */
 	long http_response_code;
 	bool nofollow;
-	int (*checkdwl)(void);
+	size_t (*dwlwrdata)(char *streamdata, size_t size, size_t nmemb,
+				   void *data);
+	size_t (*headers)(char *streamdata, size_t size, size_t nmemb,
+				   void *data);
 	struct swupdate_digest *dgst;
 	char sha1hash[SWUPDATE_SHA_DIGEST_LENGTH * 2 + 1];
 	sourcetype source;
-	struct dict *headers;
+	struct dict *headers_to_send;
+	struct dict *received_headers;
+	unsigned int max_download_speed;
+	char *range; /* Range request for get_file in any */
+	void *user;
 } channel_data_t;
