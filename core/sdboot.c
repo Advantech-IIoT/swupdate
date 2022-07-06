@@ -30,6 +30,7 @@ bool is_boot_from_SD(void) {
 
     fd = open("/proc/cmdline", O_RDONLY);
     ret = read(fd, (char*)param, 1024);
+    fprintf(stdout, "param=%s\n", param);
 
     s = strstr(param, "sdfwupdate");
     if (s != NULL) {

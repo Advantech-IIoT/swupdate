@@ -206,6 +206,7 @@ struct swupdate_cfg *get_swupdate_cfg(void) {
 }
 
 static void get_args(int *argc, char ***argv) {
+    fprintf(stdout, ">>> get_args in\n");
     char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
 
     if (*argc <= 1 && command != NULL) {
@@ -222,6 +223,7 @@ static void get_args(int *argc, char ***argv) {
             printf("Bad boot command\n\"%.20s\"\n", command);
         }
     }
+    fprintf(stdout, ">>> get_args out\n");
 }
 
 /*
