@@ -208,15 +208,20 @@ struct swupdate_cfg *get_swupdate_cfg(void) {
 static void get_args(int *argc, char ***argv) {
     fprintf(stdout, ">>> get_args in\n");
     char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
+    fprintf(stdout, ">>> get_args 1\n");
+    fprintf(stdout, ">>> get_args command=%s\n", command);
 
     if (*argc <= 1 && command != NULL) {
         const char *arg = strtok(command, "\n");
         if (arg != NULL && !strcmp(arg, "/usr/bin/swupdate")) {
+	    fprintf(stdout, ">>> get_args 2\n");
             *argv = (char **) malloc(sizeof(char *) * 100);
             (*argv)[0] = strdup(arg);
+	    fprintf(stdout, ">>> 2 get_args arg=%s\n", arg);
             for (*argc = 1; *argc < 100; ++*argc) {
                 if ((arg = strtok(NULL, "\n")) == NULL) break;
                 (*argv)[*argc] = strdup(arg);
+		fprintf(stdout, ">>> 3 get_args arg=%s\n", arg);
             }
             printf("Got arguments from bootloader env. \n");
         } else if (command[0] != 0 && command[0] != 255) {
