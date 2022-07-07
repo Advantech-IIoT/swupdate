@@ -211,6 +211,7 @@ static void get_args(int *argc, char ***argv) {
 	print_registered_bootloaders();
 	if (!get_bootloader()) {
 		fprintf(stdout, ">>> not get_bootloader\n");
+		fprintf(stdout, ">>> set_bootloader %s\n", PREPROCVALUE(BOOTLOADER_DEFAULT));
 		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
 			ERROR("Default bootloader interface '" PREPROCVALUE(
 				BOOTLOADER_DEFAULT) "' couldn't be loaded.");
