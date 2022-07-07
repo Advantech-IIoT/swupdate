@@ -43,7 +43,10 @@ int set_bootloader(const char *name)
 		return -ENOENT;
 	}
 	for (unsigned int i = 0; i < num_available; i++) {
-		fprintf(stdout, ">>> a=%s name=%s\n", available[i].name, name);
+		fprintf(stdout, ">>> a=%s, name=%s,\n", available[i].name, name);
+		fprintf(stdout, ">>> strcmp=%d\n",(strcmp(available[i].name, name) == 0));
+		fprintf(stdout, ">>> if=%d\n",(available[i].funcs &&
+		    (strcmp(available[i].name, name) == 0)));
 		if (available[i].funcs &&
 		    (strcmp(available[i].name, name) == 0)) {
 			bootloader_env_set = available[i].funcs->env_set;
