@@ -46,7 +46,7 @@ void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabl
 		if(gui_enabled && is_delete) {
 			sprintf(commond, "%s\n-g\n-D\n--image=%s\n", swupdatebin, image);
 		} else if(gui_enabled && !is_delete) {
-			sprintf(commond, "%s\n-g\n--image=%s\n", swupdatebin, image);
+			sprintf(commond, "%s\n-v\n-g\n--image=%s\n", swupdatebin, image);
 		} else if(!gui_enabled && is_delete) {
 			sprintf(commond, "%s\n-D\n--image=%s\n", swupdatebin, image);
 		} else {
@@ -122,17 +122,19 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, 
 	fdout = openfileoutput(output_file);
 	if (fdout < 0)
 		return -1;
-
+	TRACE("\topenfileoutput");
 	if (copyfile(fd, &fdout, fdh.size, poffs, 0, 0, 0, &checksum, NULL,
 		     encrypted, NULL, NULL) < 0) {
 		close(fdout);
 		return -1;
 	}
+	TRACE("\tcopyfile");
 	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
 		close(fdout);
 		return -1;
 	}
 	close(fdout);
+	TRACE("\tend");
 
 	return 0;
 }
