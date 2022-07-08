@@ -39,14 +39,9 @@ int register_bootloader(const char *name, bootloader *bl)
 int set_bootloader(const char *name)
 {
 	if (!name) {
-		fprintf(stdout, ">>> empty bootloader\n");
 		return -ENOENT;
 	}
 	for (unsigned int i = 0; i < num_available; i++) {
-		fprintf(stdout, ">>> a=%s, name=%s,\n", available[i].name, name);
-		fprintf(stdout, ">>> strcmp=%d\n",(strcmp(available[i].name, name) == 0));
-		fprintf(stdout, ">>> if=%d\n",(available[i].funcs &&
-		    (strcmp(available[i].name, name) == 0)));
 		if (available[i].funcs &&
 		    (strcmp(available[i].name, name) == 0)) {
 			bootloader_env_set = available[i].funcs->env_set;
@@ -57,7 +52,6 @@ int set_bootloader(const char *name)
 			return 0;
 		}
 	}
-	fprintf(stdout, ">>> not available\n");
 	return -ENOENT;
 }
 

@@ -206,12 +206,8 @@ struct swupdate_cfg *get_swupdate_cfg(void) {
 }
 
 static void get_args(int *argc, char ***argv) {
-	fprintf(stdout, ">>> get_args\n");
 	// set default bootloader before using it
-	print_registered_bootloaders();
 	if (!get_bootloader()) {
-		fprintf(stdout, ">>> not get_bootloader\n");
-		fprintf(stdout, ">>> set_bootloader %s\n", PREPROCVALUE(BOOTLOADER_DEFAULT));
 		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
 			ERROR("Default bootloader interface '" PREPROCVALUE(
 				BOOTLOADER_DEFAULT) "' couldn't be loaded.");
@@ -221,11 +217,8 @@ static void get_args(int *argc, char ***argv) {
 		}
 		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
 	}
-	fprintf(stdout, ">>> after set_bootloader\n");
 
     char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
-
-    fprintf(stdout, ">>> command=%s\n", command);
 
     if (*argc <= 1 && command != NULL) {
         const char *arg = strtok(command, "\n");
