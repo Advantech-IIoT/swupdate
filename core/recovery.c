@@ -129,7 +129,7 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, 
 		return -1;
 	}
 	TRACE("\tcopyfile");
-	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+	if (!swupdate_verify_chksum(checksum, &fdh)) {
 		close(fdout);
 		return -1;
 	}
@@ -231,7 +231,7 @@ static int do_image_check(int fd, unsigned long *offset, struct swupdate_cfg *so
 			if(fdout > 0) close(fdout);
 			return -1;
 		}
-		if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+		if (!swupdate_verify_chksum(checksum, &fdh)) {
 			if(fdout > 0) close(fdout);
 			return -1;
 		}
