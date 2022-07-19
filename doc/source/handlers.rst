@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 =============================================
 Handlers
 =============================================
@@ -64,6 +67,12 @@ part of the structure.
 The structure *img_type* contains the file descriptor of the stream pointing to the first byte
 of the image to be installed. The handler must read the whole image, and when it returns
 back SWUpdate can go on with the next image in the stream.
+
+The data parameter is usually a pointer that was registered with the
+handler. For script handlers it is instead a pointer to a ``struct
+script_handler_data`` which contains a ``script_fn`` enum value,
+indicating the current installation phase, and the registered data
+pointer.
 
 SWUpdate provides a general function to extract data from the stream and copy
 to somewhere else:
@@ -301,6 +310,16 @@ Note that dashes in the attributes' names are replaced with
 underscores for the Lua domain to make them idiomatic, e.g.,
 ``installed-directly`` becomes ``installed_directly`` in the
 Lua domain.
+
+For a script handler written in Lua, the prototype is
+
+::
+
+        function lua_handler(image, scriptfn)
+            ...
+        end
+
+where ``scriptfn`` is either ``"preinst"`` or ``"postinst"``.
 
 To register a Lua handler, the ``swupdate`` module provides the
 ``swupdate.register_handler()`` method that takes the handler's
@@ -757,6 +776,58 @@ Properties ``size`` and ``offset`` are optional, all the other properties are ma
     |             |          | If not set, default value 0 will be used.          |
     +-------------+----------+----------------------------------------------------+
 
+
+Rawcopy handler
+---------------
+
+The rawcopy handler copies one source to a destination. It is a script handler, and no artifact in the SWU is associated
+with the handler.  It can be used to copy configuration data, or parts that should be taken by the current installation.
+It requires the mandatory  property (`copyfrom`), while device contains the destination path. 
+The handler performs a byte copy, and it does not matter which is the source - it can be a file or a partition.
+An optional `type` field can set if the handler is active as pre or postinstall script. If not set, the handler
+is called twice.
+
+::
+
+        scripts : (
+                {
+                device = "/dev/mmcblk2p1";
+                type = "rawcopy";
+                properties : {
+                        copyfrom = "/dev/mmcblk2p2";
+                        type = "postinstall";
+                }
+        }
+
+
+Archive handler
+---------------
+
+The archive handler extracts an archive to a destination path.
+It supports whatever format libarchive has been compiled to support, for example even if swupdate
+itself has no direct support for xz it can be possible to extract tar.xz files with it.
+
+The attribute `preserve-attributes` must be set to preserve timestamps. uid/gid (numeric),
+permissions (except +x, always preserved) and extended attributes.
+
+The property `create-destination` can be set to the string `true` to have swupdate create
+the destination path before extraction.
+
+::
+
+                files: (
+                        {
+                                filename = "examples.tar.zst";
+                                type = "archive";
+                                path = "/extract/here";
+                                preserve-attributes = true;
+                                installed-directly = true;
+                                properties: {
+                                        create-destination = "true";
+                                }
+                        }
+                );
+
 Disk partitioner
 ----------------
 
@@ -820,6 +891,12 @@ supported:
    |             |          | will be created on the corresponding partition.    |
    |             |          | vfat / ext2 / ext3 /ext4 file system is supported  |
    +-------------+----------+----------------------------------------------------+
+   | partuuid    | string   | The partition UUID (GPT only). If omitted, a UUID  |
+   |             |          | will be generated automatically.			 |
+   +-------------+----------+----------------------------------------------------+
+   | flag        | string   | The following flags are supported:                 |
+   |             |          | Dos Partition : "boot" set bootflag		 |
+   +-------------+----------+----------------------------------------------------+
 
 
 
@@ -869,6 +946,72 @@ MBR Example:
 	   }
 	}
 
+Toggleboot Handler
+------------------
+
+This handler is a script handler. It turns on the bootflag for one of a disk partition
+if the partition table is DOS. It reports an error if the table is GPT.
+
+::
+
+	script: (
+	{
+	   type = "toggleboot";
+	   device = "/dev/sde";
+	   properties: {
+		partition = "1";
+           }
+        }
+
+gpt partition installer
+-----------------------
+
+There is a handler gptpart that allows writing an image into a gpt partition selected by
+the name. This handler do not modify the gpt partition (type, size, ...), it just writes
+the image in the GPT partition.
+
+::
+
+	images: (
+		{
+			filename = "u-boot.bin";
+			type = "gptpart";
+			device = "/dev/vdb";
+			volume = "u-boot-1";
+			offset = "1024";
+		},
+		{
+			filename = "kernel.bin";
+			type = "gptpart";
+			device = "/dev/vdb";
+			volume = "kernel-1";
+		},
+	);
+
+gpt partition swap
+------------------
+
+There is a handler gptswap that allow to swap gpt partitions after all the images were flashed.
+This handler only swap the name of the partition. It coud be usefull for a dual bank strategy.
+This handler is a script for the point of view of swupdate, so the node that provide it should
+be added in the section scripts.
+
+Simple example:
+
+::
+
+	scripts: (
+		{
+			type = "gptswap";
+			device = "/dev/vdb";
+			properties =
+			{
+				swap-0 = [ "u-boot-0" , "u-boot-1" ];
+				swap-1 = [ "kernel-0" , "kernel-1" ];
+			};
+		},
+	);
+
 Diskformat Handler
 ------------------
 
@@ -912,3 +1055,89 @@ found on the device. It is a partition handler and it runs before any image is i
                                    "18e12df1-d8e1-4283-8727-37727eb4261d"];
 		}
 	});
+
+Delta Update Handler
+--------------------
+
+The handler processes a ZCHUNK header and finds which chunks should be downloaded
+after generating the corresponding header of the running artifact to be updated.
+The handler uses just a couple of attributes from the main setup, and gets more information
+from the properties. The attributes are then passed to a secondary handler that
+will install the artefact after the delta handler has assembled it.
+The handler requires ZST because this is the compression format for Zchunk.
+
+The SWU must just contain the ZCK's header, while the ZCK file is put as it is on the server.
+The utilities in Zchunk project are used to build the zck file.
+
+::
+
+        zck -u -h sha256 <artifact>
+
+This will generates a file <arifact>.zck. To extract the header, use the `zck_read_header`
+utility:
+
+::
+
+        HSIZE=`zck_read_header -v <artifact>.zck | grep "Header size" | cut -d':' -f2`
+        dd if=<artifact>.zck of=<artifact>.header bs=1 count=$((HSIZE))
+
+The resulting header file must be packed inside the SWU.
+
+.. table:: Properties for delta update handler
+
+   +-------------+-------------+----------------------------------------------------+
+   |  Name       |  Type       |  Description                                       |
+   +=============+=============+====================================================+
+   | url         | string      | This is the URL from where the handler will        |
+   |             |             | download the missing chunks.                       |
+   |             |             | The server must support byte range header.         |
+   +-------------+-------------+----------------------------------------------------+
+   | source      | string      | name of the device or file to be used for          |
+   |             |             | the comparison.                                    |
+   +-------------+-------------+----------------------------------------------------+
+   | chain       | string      | this is the name (type) of the handler             |
+   |             |             | that is called after reassembling                  |
+   |             |             | the artifact.                                      |
+   +-------------+-------------+----------------------------------------------------+
+   | max-ranges  | string      | Max number of ranges that a server can             |
+   |             |             | accept. Default value (150) should be ok           |
+   |             |             | for most servers.                                  |
+   +-------------+-------------+----------------------------------------------------+
+   | zckloglevel | string      | this sets the log level of the zcklib.             |
+   |             |             | Logs are intercepted by SWupdate and               |
+   |             |             | appear in SWUpdate's log.                          |
+   |             |             | Value is one of debug,info                         |
+   |             |             | warn,error,none                                    |
+   +-------------+-------------+----------------------------------------------------+
+   | debug-chunks| string      | "true", default is not set.                        |
+   |             |             | This activates more verbose debugging              |
+   |             |             | output and the list of all chunks is               |
+   |             |             | printed, and it reports if a chunk                 |
+   |             |             | is downloaded  or copied from the source.          |
+   +-------------+-------------+----------------------------------------------------+
+   | source-size | string      | This limits the index of the source                |
+   |             |             | It is helpful in case of filesystem in much        |
+   |             |             | bigger partition. It has the value for the size    |
+   |             |             | or it can be set to "detect" and the handler       |
+   |             |             | will try to find the effective size of fs.         |
+   +-------------+-------------+----------------------------------------------------+
+
+
+Example:
+
+::
+
+        {
+                filename = "software.header";
+                type = "delta";
+
+                device = "/dev/mmcblk0p2";
+                properties: {
+                        url = "http://examples.com/software.zck";
+                        chain = "raw";
+                        source = "/dev/mmcblk0p3";
+                        zckloglevel = "error";
+                        /* debug-chunks = "true"; */
+                };
+        }
+

@@ -7,6 +7,7 @@
  */
 
 #include <stdlib.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -179,6 +180,23 @@ void LUAstackDump(lua_State *L)
 	}
 }
 
+#ifdef CONFIG_HANDLER_IN_LUA
+static void lua_report_exception(lua_State *L)
+{
+	const char *s = lua_tostring(L, -1);
+
+	TRACE("Lua exception:");
+
+	/* Log one line at a time, so each has the proper prefix */
+	do {
+		int len = strcspn(s, "\n");
+
+		TRACE("%.*s", len, s);
+		s += len;
+	} while (*s++);
+}
+#endif
+
 int run_lua_script(const char *script, const char *function, char *parms)
 {
 	int ret;
@@ -303,7 +321,7 @@ static void lua_string_to_img(struct img_type *img, const char *key,
 		strncpy(seek_str, value,
 			sizeof(seek_str));
 		/* convert the offset handling multiplicative suffixes */
-		img->seek = ustrtoull(seek_str, 0);
+		img->seek = ustrtoull(seek_str, NULL, 0);
 		if (errno){
 			ERROR("offset argument: ustrtoull failed");
 		}
@@ -399,7 +417,7 @@ copyfile_exit:
 	return 2;
 }
 
-static int istream_read_callback(void *out, const void *buf, unsigned int len)
+static int istream_read_callback(void *out, const void *buf, size_t len)
 {
 	lua_State* L = (lua_State*)out;
 	if (len > LUAL_BUFFERSIZE) {
@@ -810,24 +828,51 @@ l_umount_exit:
 	return 1;
 }
 
+static char* getroot_dev_path(char *prefix, char *devname) {
+	int prefix_len = strlen(prefix);
+	int devname_len = strnlen(devname, PATH_MAX - prefix_len - 1);
+	char *tmp = alloca(sizeof(char) * (prefix_len + devname_len + 1));
+	(void)strcpy(strcpy(tmp, prefix) + prefix_len, devname);
+	char *path = realpath(tmp, NULL);
+	if (path) {
+		int fd = open(path, O_RDWR | O_CLOEXEC);
+		if (fd != -1) {
+			(void)close(fd);
+			return path;
+		}
+		free(path);
+	}
+	return NULL;
+}
+
 static int l_getroot(lua_State *L) {
 	char *rootdev = get_root_device();
 	root_dev_type type = ROOT_DEV_PATH;
 	char **root = NULL;
 	char *value = rootdev;
+	char* dev_path = getroot_dev_path((char*)"", rootdev);
 
 	root = string_split(rootdev, '=');
 	if (count_string_array((const char **)root) > 1) {
 		if (!strncmp(root[0], "UUID", strlen("UUID"))) {
 			type = ROOT_DEV_UUID;
-		} else if (strncmp(root[0], "PARTUUID", strlen("PARTUUID"))) {
+			dev_path = getroot_dev_path((char*)"/dev/disk/by-uuid/", root[1]);
+		} else if (!strncmp(root[0], "PARTUUID", strlen("PARTUUID"))) {
 			type = ROOT_DEV_PARTUUID;
-		} else if (strncmp(root[0], "PARTLABEL", strlen("PARTLABEL"))) {
+			dev_path = getroot_dev_path((char*)"/dev/disk/by-partuuid/", root[1]);
+		} else if (!strncmp(root[0], "PARTLABEL", strlen("PARTLABEL"))) {
 			type = ROOT_DEV_PARTLABEL;
+			dev_path = getroot_dev_path((char*)"/dev/disk/by-partlabel/", root[1]);
 		}
 		value = root[1];
 	}
 	lua_newtable (L);
+	if (dev_path) {
+		lua_pushstring(L, "path");
+		lua_pushstring(L, dev_path);
+		lua_settable(L, -3);
+		free(dev_path);
+	}
 	lua_pushstring(L, "type");
 	lua_pushinteger(L, type);
 	lua_settable(L, -3);
@@ -854,7 +899,7 @@ static int l_get_bootenv(lua_State *L) {
 }
 
 static int l_set_bootenv(lua_State *L) {
-	struct dict *bootenv = (struct dict *)lua_touserdata(L, lua_upvalueindex(1));
+	struct dict *bootenv = *(struct dict**)lua_touserdata(L, lua_upvalueindex(1));
 	const char *name = luaL_checkstring(L, 1);
 	const char *value = luaL_checkstring(L, 2);
 
@@ -900,6 +945,50 @@ static int l_progress_update(lua_State *L)
 }
 #endif
 
+static void lua_push_enum(lua_State *L, const char *name, int value)
+{
+	lua_pushstring(L, name);
+	lua_pushnumber(L, (lua_Number) value );
+	lua_settable(L, -3);
+}
+
+static int l_getversion(lua_State *L)
+{
+	unsigned int version = 0, patchlevel = 0;
+	/* Deliberately ignore sublevel and extraversion. */
+	if (sscanf(SWU_VER, "%u.%u.%*s", &version, &patchlevel) != 2) {
+		version = 0;
+		patchlevel = 0;
+	}
+	lua_newtable (L);
+	lua_pushnumber(L, 1);
+	lua_pushnumber(L, version);
+	lua_settable(L, -3);
+	lua_pushnumber(L, 2);
+	lua_pushnumber(L, patchlevel);
+	lua_settable(L, -3);
+	lua_push_enum(L, "version", version);
+	lua_push_enum(L, "patchlevel", patchlevel);
+	return 1;
+}
+
+/**
+ * @brief Dispatch a message to the progress interface.
+ *
+ * @param [Lua] Message to dispatch to progress interface.
+ * @return [Lua] nil.
+ */
+static int l_notify_progress(lua_State *L) {
+  /*
+   * NOTE: level is INFOLEVEL for the sake of specifying a level.
+   * It is unused in core/notifier.c :: progress_notifier() as the
+   * progress emitter doesn't know about log levels.
+   */
+  notify(PROGRESS, RECOVERY_NO_ERROR, INFOLEVEL, luaL_checkstring(L, -1));
+  lua_pop(L, 1);
+  return 0;
+}
+
 /**
  * @brief array with the function which are exported to Lua
  */
@@ -913,6 +1002,8 @@ static const luaL_Reg l_swupdate[] = {
         { "mount", l_mount },
         { "umount", l_umount },
         { "getroot", l_getroot },
+        { "getversion", l_getversion },
+        { "progress", l_notify_progress },
         { NULL, NULL }
 };
 
@@ -933,13 +1024,6 @@ static const luaL_Reg l_swupdate_handler[] = {
         { NULL, NULL }
 };
 #endif
-
-static void lua_push_enum(lua_State *L, const char *name, int value)
-{
-	lua_pushstring(L, name);
-	lua_pushnumber(L, (lua_Number) value );
-	lua_settable(L, -3);
-}
 
 /**
  * @brief function to register the swupdate package in the Lua Stack
@@ -962,7 +1046,7 @@ static int luaopen_swupdate(lua_State *L)
 	lua_push_enum(L, "DOWNLOAD", DOWNLOAD);
 	lua_push_enum(L, "DONE", DONE);
 	lua_push_enum(L, "SUBPROCESS", SUBPROCESS);
-	lua_push_enum(L, "PROGRESS", SUBPROCESS);
+	lua_push_enum(L, "PROGRESS", PROGRESS);
 	lua_settable(L, -3);
 
 	/* export the root device type */
@@ -987,6 +1071,7 @@ static int luaopen_swupdate(lua_State *L)
 		lua_push_enum(L, "SCRIPT_HANDLER", SCRIPT_HANDLER);
 		lua_push_enum(L, "BOOTLOADER_HANDLER", BOOTLOADER_HANDLER);
 		lua_push_enum(L, "PARTITION_HANDLER", PARTITION_HANDLER);
+		lua_push_enum(L, "NO_DATA_HANDLER", NO_DATA_HANDLER);
 		lua_push_enum(L, "ANY_HANDLER", ANY_HANDLER);
 		lua_settable(L, -3);
 
@@ -1019,9 +1104,11 @@ static lua_State *gL = NULL;
  * @param index [in] defines which image have to be installed
  * @param unused [in] unused in this context
  * @param data [in] pointer to the index in the Lua registry for the function
+ * @param scriptfn [in] installation phase for script handlers, or NONE
  * @return This function returns 0 if successful and -1 if unsuccessful.
  */
-static int l_handler_wrapper(struct img_type *img, void *data) {
+static int l_handler_wrapper(struct img_type *img, void *data,
+			     script_fn scriptfn) {
 	int res = 0;
 	lua_Number result;
 	int l_func_ref;
@@ -1036,7 +1123,8 @@ static int l_handler_wrapper(struct img_type *img, void *data) {
 			ERROR("Lua stack corrupted.");
 			return -1;
 		}
-		lua_pushlightuserdata(gL, (void *)img->bootloader);
+		struct dict **udbootenv = lua_newuserdata(gL, sizeof(struct dict*));
+		*udbootenv = img->bootloader;
 		luaL_setfuncs(gL, l_swupdate_bootenv, 1);
 		lua_pop(gL, 1);
 	}
@@ -1046,7 +1134,19 @@ static int l_handler_wrapper(struct img_type *img, void *data) {
 	lua_rawgeti(gL, LUA_REGISTRYINDEX, l_func_ref );
 	image2table(gL, img);
 
-	if (LUA_OK != (res = lua_pcall(gL, 1, 1, 0))) {
+	switch (scriptfn) {
+	case PREINSTALL:
+		lua_pushstring(gL, "preinst");
+		break;
+	case POSTINSTALL:
+		lua_pushstring(gL, "postinst");
+		break;
+	default:
+		lua_pushnil(gL);
+		break;
+	}
+
+	if (LUA_OK != (res = lua_pcall(gL, 2, 1, 0))) {
 		ERROR("Error %d while executing the Lua callback: %s",
 			  res, lua_tostring(gL, -1));
 		return -1;
@@ -1065,6 +1165,18 @@ static int l_handler_wrapper(struct img_type *img, void *data) {
 	return (int) result;
 }
 
+static int l_script_handler_wrapper(struct img_type *img, void *data)
+{
+	struct script_handler_data *script_data = data;
+
+	return l_handler_wrapper(img, script_data->data, script_data->scriptfn);
+}
+
+static int l_other_handler_wrapper(struct img_type *img, void *data)
+{
+	return l_handler_wrapper(img, data, NONE);
+}
+
 /**
  * @brief function to register a callback from Lua
  *
@@ -1081,18 +1193,35 @@ static int l_register_handler( lua_State *L ) {
 		lua_pop(L, 2);
 		return 0;
 	} else {
-		unsigned int mask = ANY_HANDLER;
+		unsigned int mask = ANY_HANDLER & ~SCRIPT_HANDLER;
 		if (lua_isnumber(L, 3)) {
 			mask = luaL_checknumber(L, 3);
 			lua_pop(L, 1);
 		}
+		if ((mask & SCRIPT_HANDLER) &&
+		    (mask & (IMAGE_HANDLER | FILE_HANDLER |
+			     BOOTLOADER_HANDLER | PARTITION_HANDLER))) {
+			/*
+			 * This won't work - script handlers are
+			 * called differently
+			 */
+			ERROR("Lua handler: attempted to register"
+			      " a handler for scripts and non-scripts");
+			free(l_func_ref);
+			lua_pop(L, 1);
+			return 0;
+		}
+
 		const char *handler_desc = luaL_checkstring(L, 1);
 		/* store the callback function in registry */
 		*l_func_ref = luaL_ref (L, LUA_REGISTRYINDEX);
 		/* cleanup stack */
 		lua_pop (L, 1);
 
-		register_handler(handler_desc, l_handler_wrapper,
+		register_handler(handler_desc,
+				 (mask & SCRIPT_HANDLER) ?
+				 l_script_handler_wrapper :
+				 l_other_handler_wrapper,
 				 mask, l_func_ref);
 		return 0;
 	}
@@ -1149,6 +1278,12 @@ call_handler_exit:
 
 int lua_handlers_init(void)
 {
+	static const char location[] =
+#if defined(CONFIG_EMBEDDED_LUA_HANDLER)
+		"Compiled-in";
+#else
+		"External";
+#endif
 	int ret = -1;
 
 	gL = luaL_newstate();
@@ -1162,29 +1297,18 @@ int lua_handlers_init(void)
 		lua_pop(gL, 1); /* remove unused copy left on stack */
 		/* try to load Lua handlers for the swupdate system */
 #if defined(CONFIG_EMBEDDED_LUA_HANDLER)
-		if ((ret = (luaL_loadbuffer(gL, EMBEDDED_LUA_SRC_START, EMBEDDED_LUA_SRC_END-EMBEDDED_LUA_SRC_START, "LuaHandler") ||
-					lua_pcall(gL, 0, LUA_MULTRET, 0))) != 0) {
-			INFO("No compiled-in Lua handler(s) found.");
-			TRACE("Lua exception:\n%s", lua_tostring(gL, -1));
+		ret = (luaL_loadbuffer(gL, EMBEDDED_LUA_SRC_START, EMBEDDED_LUA_SRC_END-EMBEDDED_LUA_SRC_START, "LuaHandler") ||
+		       lua_pcall(gL, 0, LUA_MULTRET, 0));
+#else
+		ret = luaL_dostring(gL, "require (\"swupdate_handlers\")");
+#endif
+		if (ret != 0) {
+			INFO("%s Lua handler(s) not found.", location);
+			lua_report_exception(gL);
 			lua_pop(gL, 1);
 		} else {
-			INFO("Compiled-in Lua handler(s) found and loaded.");
+			INFO("%s Lua handler(s) found and loaded.", location);
 		}
-#else
-		if ((ret = luaL_dostring(gL, "require (\"swupdate_handlers\")")) != 0) {
-			INFO("No Lua handler(s) found.");
-			if (luaL_dostring(gL, "return package.path:gsub('?','swupdate_handlers'):gsub(';','\\0')") == 0) {
-				const char *paths = lua_tostring(gL, -2);
-				for (int i=lua_tonumber(gL, -1); i >= 0; i--) {
-					TRACE("\t%s", paths);
-					paths += strlen(paths) + 1;
-				}
-				lua_pop(gL, 2);
-			}
-		} else {
-			INFO("Lua handler(s) found.");
-		}
-#endif
 	} else	{
 		WARN("Unable to register Lua context for callbacks");
 	}
@@ -1206,7 +1330,8 @@ lua_State *lua_parser_init(const char *buf, struct dict *bootenv)
 	lua_setglobal(L, "SWUPDATE_LUA_TYPE"); /* prime L as LUA_TYPE_PEMBSCR */
 	luaL_openlibs(L); /* opens the standard libraries */
 	luaL_requiref(L, "swupdate", luaopen_swupdate, 1 );
-	lua_pushlightuserdata(L, (void *)bootenv);
+	struct dict **udbootenv = lua_newuserdata(L, sizeof(struct dict*));
+	*udbootenv = bootenv;
 	luaL_setfuncs(L, l_swupdate_bootenv, 1);
 	lua_pop(L, 1); /* remove unused copy left on stack */
 

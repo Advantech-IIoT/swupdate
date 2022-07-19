@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 .. _contents: Table of contents
 
 .. image:: images/SWUpdate.png
@@ -41,11 +44,13 @@ SWUpdate Documentation
    mongoose.rst
    suricatta.rst
    hawkbit-setup.rst
-   swupdate-ipc.rst
+   swupdate-ipc-interface.rst
    progress.rst
    bindings.rst
+   bootloader_interface.rst
    building-with-yocto.rst
    swupdate-best-practise.rst
+   delta-update.rst
 
 ############################################
 Utilities and tools
@@ -55,10 +60,8 @@ Utilities and tools
    :maxdepth: 2
 
    swupdate-client.rst
-   swupdate-hawkbitcfg.rst
-   swupdate-sendtohawkbit.rst
    swupdate-progress.rst
-   swupdate-sysrestart.rst
+   swupdate-ipc.rst
 
 ############################################
 Help and support

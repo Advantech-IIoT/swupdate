@@ -23,6 +23,10 @@ void suricatta_channel_settings(void *elem, channel_data_t *chan)
 	get_field(LIBCFG_PARSER, elem, "retry",
 		&chan->retries);
 
+	GET_FIELD_STRING_RESET(LIBCFG_PARSER, elem, "max-download-speed", tmp);
+	if (strlen(tmp))
+		chan->max_download_speed = (unsigned int)ustrtoull(tmp, NULL, 10);
+
 	GET_FIELD_STRING_RESET(LIBCFG_PARSER, elem, "retrywait", tmp);
 	if (strlen(tmp))
 		chan->retry_sleep =
@@ -52,6 +56,9 @@ server_op_res_t map_channel_retcode(channel_op_res_t response)
 	switch (response) {
 	case CHANNEL_ENONET:
 	case CHANNEL_EAGAIN:
+	case CHANNEL_ESSLCERT:
+	case CHANNEL_ESSLCONNECT:
+	case CHANNEL_REQUEST_PENDING:
 		return SERVER_EAGAIN;
 	case CHANNEL_EACCES:
 		return SERVER_EACCES;

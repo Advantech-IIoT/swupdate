@@ -210,7 +210,7 @@ LDLIBS += gpiod
 endif
 
 ifeq ($(CONFIG_UBOOT),y)
-LDLIBS += z ubootenv
+LDLIBS += dl
 endif
 
 ifeq ($(CONFIG_SYSTEMD),y)
@@ -218,7 +218,19 @@ LDLIBS += systemd
 endif
 
 ifeq ($(CONFIG_BOOTLOADER_EBG),y)
-LDLIBS += ebgenv z
+LDLIBS += dl
+endif
+
+ifeq ($(CONFIG_BOOTLOADER_DEFAULT_NONE),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="none"
+else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_GRUB),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="grub"
+else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_UBOOT),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="uboot"
+else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_EBG),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="ebg"
+else
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="none"
 endif
 
 ## for recovery UI.
@@ -227,6 +239,11 @@ LDLIBS += png drm
 # SWU forwarder
 ifneq ($(CONFIG_SWUFORWARDER_HANDLER),)
 LDLIBS += websockets uriparser
+endif
+
+# Delta Update
+ifneq ($(CONFIG_DELTA),)
+LDLIBS += zck
 endif
 
 # If a flat binary should be built, CFLAGS_swupdate="-elf2flt"

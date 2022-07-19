@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 =============================================
 SWUpdate: software update for embedded system
 =============================================
@@ -80,7 +83,13 @@ General Overview
 
 - Support for setting / erasing `EFI Boot Guard`_ variables
 
-- Support for preinstall scripts. They run before updating the images
+- Support for pre and post update commands run before the update starts
+  processing data and after the update has finished successfully.
+
+- Support for lua hooks, executed before any handler runs.
+
+- Support for preinstall scripts. They run after streamed handlers have
+  handled their data, and before regular handlers.
 
 - Support for postinstall scripts. They run after updating the images.
 
@@ -184,7 +193,7 @@ Images fully streamed
 ---------------------
 
 In case of remote update, SWUpdate extracts relevant images from the stream
-and copies them into the directory pointed to by the environment variable 
+and copies them into the directory pointed to by the environment variable
 ``TMPDIR`` (if unset, to ``/tmp``) before calling the handlers.
 This guarantee that an update is initiated only if all parts are present and
 correct. However, on some systems with less resources, the amount of RAM
@@ -345,24 +354,27 @@ A run of SWUpdate consists mainly of the following steps:
   with the table in sw-description.
 - Parse sw-description to determine which artefacts in the incoming SWU
   are required. Not required artifacts are simply skipped.
-  The meta file sw-description is declarative and executive. If "hooks"
-  are defined in sw-description, they are executed at parse time. Hooks
-  are executed before any artefact is evaluated and they are the best
-  way to implement pre install functions.
+  If an "embedded-script" is defined, it is executed at this point
+  before parsing files.
+  If "hooks" are defined, they are executed as each file is parsed,
+  even if they will be skipped.
   At the end of the parsing, SWUpdate builds an internal mapping for each artifact
   to recognize which handler should be called for each of them.
-- Reads the cpio archive and proofs the CPIO checksum of each single file
-  (this can be disabled in the configuration) and computes the sha256 sum if foreseen or if Signed Images
-  are activated.  SWUpdate stops if the archive is not complete verified.
-- check that all components described in sw-description are
-  really in the cpio archive.
-- run the partitions handlers, if required.
-- runs pre-install scripts, if any. Please note: if artifacts are streamed, a preinstall script cannot be
-  executed because it depends on the order the artifact (including the script) are packed into the CPIO archive.
-  In this case, please use the "embedded-script" feature in sw-description to execute functions before any
-  installation takes place.
-- if an artifact is found in SWU and it is marked with "installed-directly", proceed with installation,
-  else extract it temporarily into TMPDIR.
+- runs the pre update command, if set
+- runs partition handlers, if required.
+- reads through the cpio archive one file at a time and either:
+        * execute handlers for each file marked as "installed-directly".
+          checksum is checked while the data is streamed to handler, and copy will
+          be marked as having failed if checksum was not correct failing the rest
+          of the install.
+        * copy other files to a temporary location while checking checksums,
+          stopping if there was a mismatch.
+- iterates through all `scripts` and call the corresponding
+  handler for pre-install scripts.
+  Please note: if artifacts are streamed, they will be extracted
+  before this runs. If earlier execution is required, please use
+  the "embedded-script" or hooks features to ensure code is run
+  before installation takes place.
 - iterates through all `images` and call the corresponding
   handler for installing on target.
 - iterates through all `files` and call the corresponding
@@ -372,7 +384,7 @@ A run of SWUpdate consists mainly of the following steps:
 - iterates through all `bootenv` and updates the bootloader environment.
 - reports the status to the operator through the notification interface
   (logging, traces) and through the progress interface.
-- if a postinstall command is foreseen (for example to reboot the device), call it.
+- runs the post update command, if set.
 
 The first step that fails, stops the entire procedure and
 an error is reported.
@@ -455,6 +467,9 @@ Command line parameters
 |             |          | Example: U-Boot and environment in MTD0-1: |
 |             |          | ``swupdate -b "0 1"``.                     |
 +-------------+----------+--------------------------------------------+
+| -B <loader> | string   | Override the default bootloader interface  |
+|             |          | to use ``loader`` instead.                 |
++-------------+----------+--------------------------------------------+
 | -e <sel>    | string   | ``sel`` is in the format <software>,<mode>.|
 |             |          | It allows one to find a subset of rules in |
 |             |          | the sw-description file. With it,          |
@@ -490,6 +505,8 @@ Command line parameters
 +-------------+----------+--------------------------------------------+
 | --ca-\      | string   | Available if CONFIG_SIGNED_IMAGES is set.  |
 | path <file> |          | Path to the Certificate Authority (PEM).   |
++-------------+----------+--------------------------------------------+
+| --get-root  |          | Detect and print the root device and exit  |
 +-------------+----------+--------------------------------------------+
 | -l <level>  | int      | Set loglevel.                              |
 +-------------+----------+--------------------------------------------+
@@ -652,7 +669,53 @@ Mandatory arguments are marked with '\*':
 |                         |          | during this period - adapt this value to   |
 |                         |          | your use case!                             |
 +-------------------------+----------+--------------------------------------------+
+| -a <name> <value>       | strings  | Custom HTTP header with given name and     |
+|                         |          | value to be sent with every HTTP request   |
+|                         |          | made.                                      |
++-------------------------+----------+--------------------------------------------+
+| -n <value>              | string   | Maximum download speed to be used.         |
+|                         |          | Value be specified in kB/s, B/s, MB/s      |
+|                         |          | or GB/s. Examples:                         |
+|                         |          | -n 100k : Set limit to 100 kB/s.           |
+|                         |          | -n 500  : Set limit to 500 B/s.            |
+|                         |          | -n 2M   : Set limit to 1 M/s.              |
+|                         |          | -n 1G   : Set limit to 1 G/s.              |
++-------------------------+----------+--------------------------------------------+
 
+Webserver command line parameters
+.................................
+
+Example: ``swupdate -w "-r /www -p 8080"``
+
+Mandatory arguments are marked with '\*':
+
++-------------------------+----------+--------------------------------------------+
+|  Parameter              | Type     | Description                                |
++=========================+==========+============================================+
+| -r <document root>      | string   | \* Path where the web app is stored.       |
++-------------------------+----------+--------------------------------------------+
+| -p <port>               | integer  | \* TCP port to be listened                 |
+|                         |          | if not set, 8080 is used                   |
++-------------------------+----------+--------------------------------------------+
+| -s <ssl>                |          | \* Enable SSL support. Note: it must be    |
+|                         |          | configured with CONFIG_MONGOOSESSL         |
++-------------------------+----------+--------------------------------------------+
+| --ssl-cert <cert>       | string   | Path to the certificate to present to      |
+|                         |          | clients                                    |
++-------------------------+----------+--------------------------------------------+
+| -K <key>                | string   | Path to key corresponding to ssl           |
+|                         |          | certificate                                |
++-------------------------+----------+--------------------------------------------+
+| -t <timeout>            | integer  | Timeout to consider a connection lost if   |
+|                         |          | clients stops to send data. If hit, an     |
+|                         |          | update is aborted. Default=0 (unlimited)   |
++-------------------------+----------+--------------------------------------------+
+| --auth-domain <string>  | string   | Set authentication domain                  |
+|                         |          | Default: none                              |
++-------------------------+----------+--------------------------------------------+
+| --global-auth-file      | string   | Set authentication file if any             |
+|  <string>               |          | Default: none                              |
++-------------------------+----------+--------------------------------------------+
 
 systemd Integration
 -------------------
@@ -706,7 +769,7 @@ files are also handed over on a "regular" start of SWUpdate via
 ``systemctl start swupdate.service``.
 
 Note that the socket paths in the two ``ListenStream=`` directives
-have to match the socket paths ``CONFIG_SOCKET_CTRL_PATH`` and 
+have to match the socket paths ``CONFIG_SOCKET_CTRL_PATH`` and
 ``CONFIG_SOCKET_PROGRESS_PATH`` in SWUpdate's configuration.
 Here, the default socket path configuration is depicted.
 

@@ -216,6 +216,18 @@ void freeargs (char **argv)
 	}
 }
 
+void *saferealloc(void *ptr, size_t size) {
+    void *ret = realloc(ptr, size);
+    /*
+     * Realloc does not touch the original block if fails.
+     * Policy is to free memory and returns with error (Null)
+     */
+    if (!ret && ptr)
+        free(ptr);
+    return ret;
+}
+
+
 /*
  * Concatente array of strings in a single string
  * The allocated string must be freed by the caller
@@ -270,6 +282,18 @@ char *substring(const char *src, int first, int len) {
 		return NULL;
 	memcpy(s, &src[first], len);
 	s[len] = '\0';
+	return s;
+}
+
+/*
+ * Convert all chars of a string to lower,
+ * there is no ready to use function
+ */
+
+char *string_tolower(char *s)
+{
+	char *p = s;
+	for ( ; *p; ++p) *p = tolower(*p);
 	return s;
 }
 
@@ -723,7 +747,27 @@ void free_string_array(char **nodes)
 	free(nodes);
 }
 
-unsigned long long ustrtoull(const char *cp, unsigned int base)
+/*
+ * Determines if ustrtoull() consumes a size-type delimiter
+ * from the provided string.
+ */
+int size_delimiter_match(const char *size)
+{
+	char *suffix = NULL, *usuffix = NULL;
+	strtoull(size, &suffix, 10);
+	ustrtoull(size, &usuffix, 10);
+	return suffix != usuffix;
+}
+
+/*
+ * Like strtoull(), but automatically scales the conversion
+ * result by size-type units, and only returns a pointer to
+ * the size unit in the string if requested by the caller.
+ *
+ * Sets errno to ERANGE if strtoull() found no digits or
+ * encountered an overflow, and returns 0 in both cases.
+ */
+unsigned long long ustrtoull(const char *cp, char **endptr, unsigned int base)
 {
 	errno = 0;
 	char *endp = NULL;
@@ -736,7 +780,8 @@ unsigned long long ustrtoull(const char *cp, unsigned int base)
 
 	if (cp == endp || (result == ULLONG_MAX && errno == ERANGE)) {
 		errno = ERANGE;
-		return 0;
+		result = 0;
+		goto out;
 	}
 
 	switch (*endp) {
@@ -754,8 +799,15 @@ unsigned long long ustrtoull(const char *cp, unsigned int base)
 				endp += 3;
 			else
 				endp += 2;
+		} else {
+			endp += 1;
 		}
 	}
+
+out:
+	if (endptr)
+		*endptr = endp;
+
 	return result;
 }
 
@@ -821,7 +873,7 @@ int swupdate_umount(const char *dir)
  * Date time in SWUpdate
  * @return : date in ISO8601 (it must be freed by caller)
  */
-char *swupdate_time_iso8601(void)
+char *swupdate_time_iso8601(struct timeval *tv)
 {
 	#define DATE_SIZE_ISO8601	128
 	struct timeval now;
@@ -834,7 +886,12 @@ char *swupdate_time_iso8601(void)
 	if (!buf)
 		return NULL;
 
-	gettimeofday(&now, NULL);
+	if (tv == NULL)
+		gettimeofday(&now, NULL);
+	else {
+		now.tv_sec = tv->tv_sec;
+		now.tv_usec = tv->tv_usec;
+	}
 	ms = now.tv_usec / 1000;
 
 	(void)strftime(buf, DATE_SIZE_ISO8601, "%Y-%m-%dT%T.***%z", localtime(&now.tv_sec));
@@ -897,12 +954,68 @@ size_t snescape(char *dst, size_t n, const char *src)
 }
 
 /*
- * This returns the device name where rootfs is mounted
+ * If major:minor is a containerized filesystem, e.g., in case of LUKS,
+ * return the pointed-to device name.
  */
-
 static int filter_slave(const struct dirent *ent) {
 	return (strcmp(ent->d_name, ".") && strcmp(ent->d_name, ".."));
 }
+static char *get_root_containerized_fs(int major, int minor)
+{
+	struct dirent **devlist = NULL;
+	char *devname = NULL;
+	char buf[23+4+7+1];
+	int ret = snprintf(buf, sizeof(buf), "/sys/dev/block/%d:%d/slaves", major, minor);
+	if (ret < 0 || ret >= sizeof(buf)) {
+		return NULL;
+	}
+	if (scandir(buf, &devlist, filter_slave, NULL) == 1) {
+		devname = strdup(devlist[0]->d_name);
+	}
+	free(devlist);
+	return devname;
+}
+
+/*
+ * Return the real full path to a device, or NULL.
+ */
+static char *getroot_abs_path(char* devname)
+{
+	int fd;
+	char *path;
+
+	if (!devname)
+		return NULL;
+
+	if ((path = realpath(devname, NULL))) {
+		if ((fd = open(path, O_RDWR | O_CLOEXEC)) != -1) {
+			(void)close(fd);
+			free(devname);
+			return path;
+		}
+		free(path);
+	}
+
+	char* prefix = (char*)"/dev/";
+	int prefix_len = strlen(prefix);
+	int devname_len = strnlen(devname, PATH_MAX - prefix_len - 1);
+	char *tmp = alloca(sizeof(char) * (prefix_len + devname_len + 1));
+	(void)strcpy(strcpy(tmp, prefix) + prefix_len, devname);
+	free(devname);
+	if ((path = realpath(tmp, NULL))) {
+		if ((fd = open(path, O_RDWR | O_CLOEXEC)) != -1) {
+			(void)close(fd);
+			return path;
+		}
+		free(path);
+	}
+	return NULL;
+}
+
+/*
+ * Return the rootfs's device name from /proc/partitions supporting
+ * containerized filesystems such as, e.g., LUKS.
+ */
 static char *get_root_from_partitions(void)
 {
 	struct stat info;
@@ -910,8 +1023,7 @@ static char *get_root_from_partitions(void)
 	char *devname = NULL;
 	unsigned long major, minor, nblocks;
 	char buf[256];
-	int ret, dev_major, dev_minor, n;
-	struct dirent **devlist = NULL;
+	int ret, dev_major, dev_minor;
 
 	if (stat("/", &info) < 0)
 		return NULL;
@@ -919,18 +1031,10 @@ static char *get_root_from_partitions(void)
 	dev_major = info.st_dev / 256;
 	dev_minor = info.st_dev % 256;
 
-	/*
-	 * Check if this is just a container, for example in case of LUKS
-	 * Search if the device has slaves pointing to another device
-	 */
-	snprintf(buf, sizeof(buf) - 1, "/sys/dev/block/%d:%d/slaves", dev_major, dev_minor);
-	n = scandir(buf, &devlist, filter_slave, NULL);
-	if (n == 1) {
-		devname = strdup(devlist[0]->d_name);
-		free(devlist);
-		return devname;
+	devname = get_root_containerized_fs(dev_major, dev_minor);
+	if (devname) {
+		return getroot_abs_path(devname);
 	}
-	free(devlist);
 
 	fp = fopen("/proc/partitions", "r");
 	if (!fp)
@@ -943,7 +1047,7 @@ static char *get_root_from_partitions(void)
 			continue;
 		if ((major == dev_major) && (minor == dev_minor)) {
 			fclose(fp);
-			return devname;
+			return getroot_abs_path(devname);
 		}
 		free(devname);
 	}
@@ -960,13 +1064,28 @@ static char *get_root_from_partitions(void)
 static char *get_root_from_mountinfo(void)
 {
 	char *mnt_point, *device = NULL;
+	unsigned int dev_major, dev_minor;
 	FILE *fp = fopen("/proc/self/mountinfo", "r");
-	while (fp && !feof(fp)){
+	while (fp && !feof(fp)) {
 		/* format: https://www.kernel.org/doc/Documentation/filesystems/proc.txt */
-		if (fscanf(fp, "%*s %*s %*u:%*u %*s %ms %*s %*[-] %*s %ms %*s",
-			   &mnt_point, &device) == 2) {
+		if (fscanf(fp, "%*s %*s %u:%u %*s %ms %*s %*[-] %*s %ms %*s",
+			   &dev_major, &dev_minor, &mnt_point, &device) == 4) {
 			if ( (!strcmp(mnt_point, "/")) && (strcmp(device, "none")) ) {
 				free(mnt_point);
+				char *dpath;
+				if ((dpath = realpath(device, NULL))) {
+					free(device);
+					device = dpath;
+					struct stat dinfo;
+					if (stat(device, &dinfo) == 0) {
+						dev_major = dinfo.st_rdev / 256;
+						dev_minor = dinfo.st_rdev % 256;
+					}
+				}
+				if ((dpath = get_root_containerized_fs(dev_major, dev_minor))) {
+					free(device);
+					device = getroot_abs_path(dpath);
+				}
 				break;
 			}
 			free(mnt_point);
@@ -1009,15 +1128,21 @@ static char *get_root_from_cmdline(void)
 
 	if (ret > 0) {
 		parms = string_split(buf, ' ');
+		if (!parms)
+			goto out;
 		int nparms = count_string_array((const char **)parms);
 		for (unsigned int index = 0; index < nparms; index++) {
 			if (!strncmp(parms[index], "root=", strlen("root="))) {
 				const char *value = parms[index] + strlen("root=");
-				root = strdup(value);
+				root = getroot_abs_path(strdup(value));
+				if (!root) {
+					root = strdup(value);
+				}
 				break;
 			}
 		}
 	}
+out:
 	fclose(fp);
 	free_string_array(parms);
 	free(buf);
@@ -1030,9 +1155,9 @@ char *get_root_device(void)
 
 	root = get_root_from_partitions();
 	if (!root)
-		root = get_root_from_cmdline();
-	if (!root)
 		root = get_root_from_mountinfo();
+	if (!root)
+		root = get_root_from_cmdline();
 
 	return root;
 }
@@ -1067,6 +1192,8 @@ int read_lines_notify(int fd, char *buf, int buf_size, int *buf_offset,
 	}
 
 	char **lines = string_split(buf, '\n');
+	if (!lines)
+		return -errno;
 	int nlines = count_string_array((const char **)lines);
 	/*
 	 * If the buffer is full and there is only one line,
@@ -1110,7 +1237,7 @@ long long get_output_size(struct img_type *img, bool strict)
 			return -ENOENT;
 		}
 
-		bytes = ustrtoull(output_size_str, 0);
+		bytes = ustrtoull(output_size_str, NULL, 0);
 		if (errno || bytes <= 0) {
 			ERROR("decompressed-size argument %s: ustrtoull failed",
 			      output_size_str);
@@ -1128,7 +1255,7 @@ long long get_output_size(struct img_type *img, bool strict)
 			return -ENOENT;
 		}
 
-		bytes = ustrtoull(output_size_str, 0);
+		bytes = ustrtoull(output_size_str, NULL, 0);
 		if (errno || bytes <= 0) {
 			ERROR("decrypted-size argument %s: ustrtoull failed",
 			      output_size_str);

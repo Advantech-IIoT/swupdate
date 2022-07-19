@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 swupdate-client
 ===============
 
@@ -18,6 +21,8 @@ DESCRIPTION
        print help and exit
 -d
        ask the server to only perform a dry-run
+-e     <software>,<mode>
+       select software image set and source (for example: stable,main)
 -q
        go quiet, resets verbosity
 -v

@@ -22,6 +22,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include "bsdqueue.h"
 #include "util.h"
@@ -70,6 +71,14 @@ static pthread_t subprocess_ipc_handler_thread_id;
 static pthread_mutex_t subprocess_msg_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t subprocess_wkup = PTHREAD_COND_INITIALIZER;
 
+struct notify_conn {
+	SIMPLEQ_ENTRY(notify_conn) next;
+	int sockfd;
+};
+
+SIMPLEQ_HEAD(connections, notify_conn);
+static struct connections notify_conns;
+
 static bool is_selection_allowed(const char *software_set, char *running_mode,
 				 struct dict const *acceptedlist)
 {
@@ -117,11 +126,59 @@ static void clean_msg(char *msg, char drop)
 	}
 }
 
+static int write_notify_msg(ipc_message *msg, int sockfd)
+{
+	void *buf;
+	size_t count;
+	ssize_t n;
+	int ret = 0;
+
+	buf = msg;
+	count = sizeof(*msg);
+	while (count > 0) {
+		n = send(sockfd, buf, count, MSG_NOSIGNAL);
+		if (n <= 0) {
+			/*
+			 * We can't use the notify methods for error logging here as it will cause a deadlock.
+			 */
+			if (n == 0) {
+				fprintf(stderr, "Error: A status client is not responding, removing it.\n");
+			}
+			ret = -1;
+			break;
+		}
+		count -= (size_t)n;
+		buf = (char*)buf + n;
+	}
+	return ret;
+}
+
+/*
+ * This must be called after acquiring the mutex
+ * for the msglock structure
+ */
+static void send_notify_msg(ipc_message *msg)
+{
+	struct notify_conn *conn, *tmp;
+	int ret;
+
+	SIMPLEQ_FOREACH_SAFE(conn, &notify_conns, next, tmp) {
+		ret = write_notify_msg(msg, conn->sockfd);
+		if (ret < 0) {
+			close(conn->sockfd);
+			SIMPLEQ_REMOVE(&notify_conns, conn,
+						   notify_conn, next);
+			free(conn);
+		}
+	}
+}
+
 static void network_notifier(RECOVERY_STATUS status, int error, int level, const char *msg)
 {
 	int len = msg ? strlen(msg) : 0;
 	struct msg_elem *newmsg = (struct msg_elem *)calloc(1, sizeof(*newmsg) + len + 1);
 	struct msg_elem *oldmsg;
+	ipc_message ipcmsg;
 
 	if (!newmsg)
 		return;
@@ -149,6 +206,18 @@ static void network_notifier(RECOVERY_STATUS status, int error, int level, const
 
 
 	SIMPLEQ_INSERT_TAIL(&notifymsgs, newmsg, next);
+
+	ipcmsg.magic = IPC_MAGIC;
+	ipcmsg.type = NOTIFY_STREAM;
+	memset(&ipcmsg.data, 0, sizeof(ipcmsg.data));
+
+	strncpy(ipcmsg.data.notify.msg, newmsg->msg,
+			sizeof(ipcmsg.data.notify.msg) - 1);
+	ipcmsg.data.notify.status = newmsg->status;
+	ipcmsg.data.notify.error = newmsg->error;
+	ipcmsg.data.notify.level = newmsg->level;
+	send_notify_msg(&ipcmsg);
+
 	pthread_mutex_unlock(&msglock);
 }
 
@@ -192,6 +261,9 @@ int listener_create(const char *path, int type)
 		if (chmod(path,  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) < 0)
 			WARN("chmod cannot be set on socket, error %s", strerror(errno));
 	}
+
+	if (fcntl(listenfd, F_SETFD, FD_CLOEXEC) < 0)
+		WARN("Could not set %d as cloexec: %s", listenfd, strerror(errno));
 
 	if (type == SOCK_STREAM)
 		if (listen(listenfd, LISTENQ) < 0) {
@@ -258,7 +330,7 @@ static void send_subprocess_reply(
 {
 	if (write(subprocess_msg->client, &subprocess_msg->message,
 			sizeof(subprocess_msg->message)) < 0)
-		ERROR("Error write on socket ctrl");
+		ERROR("Error writing on ctrl socket: %s", strerror(errno));
 }
 
 static void handle_subprocess_ipc(struct subprocess_msg_elem *subprocess_msg)
@@ -335,6 +407,12 @@ static void *subprocess_thread (void *data)
 {
 	(void)data;
 	thread_ready();
+
+	sigset_t sigpipe_mask;
+	sigemptyset(&sigpipe_mask);
+	sigaddset(&sigpipe_mask, SIGPIPE);
+	pthread_sigmask(SIG_BLOCK, &sigpipe_mask, NULL);
+
 	pthread_mutex_lock(&subprocess_msg_lock);
 
 	while(1) {
@@ -423,7 +501,8 @@ void *network_thread (void *data)
 	struct sockaddr_un cliaddr;
 	ipc_message msg;
 	int nread;
-	struct msg_elem *notification;
+	struct msg_elem *notification, *tmp;
+	struct notify_conn *conn;
 	int ret;
 	update_state_t value;
 	struct subprocess_msg_elem *subprocess_msg;
@@ -435,6 +514,7 @@ void *network_thread (void *data)
 	}
 
 	SIMPLEQ_INIT(&notifymsgs);
+	SIMPLEQ_INIT(&notify_conns);
 	SIMPLEQ_INIT(&subprocess_messages);
 	register_notifier(network_notifier);
 
@@ -463,6 +543,9 @@ void *network_thread (void *data)
 				continue;
 			}
 		}
+		if (fcntl(ctrlconnfd, F_SETFD, FD_CLOEXEC) < 0)
+			WARN("Could not set %d as cloexec: %s", ctrlconnfd, strerror(errno));
+
 		nread = read(ctrlconnfd, (void *)&msg, sizeof(msg));
 
 		if (nread != sizeof(msg)) {
@@ -519,9 +602,10 @@ void *network_thread (void *data)
 				if (instp->status == IDLE) {
 					instp->fd = ctrlconnfd;
 					instp->req = msg.data.instmsg.req;
-					if (is_selection_allowed(instp->req.software_set,
-								 instp->req.running_mode,
-								 &instp->software->accepted_set)) {
+					if ((instp->req.apiversion == SWUPDATE_API_VERSION) &&
+					    (is_selection_allowed(instp->req.software_set,
+								  instp->req.running_mode,
+								  &instp->software->accepted_set))) {
 						/*
 						 * Prepare answer
 						 */
@@ -562,6 +646,60 @@ void *network_thread (void *data)
 					msg.data.status.current = notification->status;
 					msg.data.status.error = notification->error;
 				}
+				pthread_mutex_unlock(&msglock);
+
+				break;
+			case NOTIFY_STREAM:
+				msg.type = ACK;
+				memset(msg.data.msg, 0, sizeof(msg.data.msg));
+				msg.data.status.current = instp->status;
+				msg.data.status.last_result = instp->last_install;
+				msg.data.status.error = instp->last_error;
+
+				ret = write(ctrlconnfd, &msg, sizeof(msg));
+				msg.type = NOTIFY_STREAM;
+				if (ret < 0) {
+					ERROR("Error write notify ack on socket ctrl");
+					close(ctrlconnfd);
+					break;
+				}
+
+				/* Get first notification from the queue */
+				pthread_mutex_lock(&msglock);
+				notification = SIMPLEQ_FIRST(&notifymsgs);
+
+				/* Send notify history */
+				SIMPLEQ_FOREACH_SAFE(notification, &notifymsgs, next, tmp) {
+					memset(msg.data.msg, 0, sizeof(msg.data.msg));
+
+					strncpy(msg.data.notify.msg, notification->msg,
+							sizeof(msg.data.notify.msg) - 1);
+					msg.data.notify.status = notification->status;
+					msg.data.notify.error = notification->error;
+					msg.data.notify.level = notification->level;
+
+					ret = write_notify_msg(&msg, ctrlconnfd);
+					if (ret < 0) {
+						pthread_mutex_unlock(&msglock);
+						ERROR("Error write notify history on socket ctrl");
+						close(ctrlconnfd);
+						break;
+					}
+				}
+
+				/*
+				 * Save the new connection to send notifications to
+				 */
+				conn = (struct notify_conn *)calloc(1, sizeof(*conn));
+				if (!conn) {
+					pthread_mutex_unlock(&msglock);
+					ERROR("Out of memory, skipping...");
+					close(ctrlconnfd);
+					pthread_mutex_unlock(&stream_mutex);
+					continue;
+				}
+				conn->sockfd = ctrlconnfd;
+				SIMPLEQ_INSERT_TAIL(&notify_conns, conn, next);
 				pthread_mutex_unlock(&msglock);
 
 				break;

@@ -104,7 +104,12 @@ static channel_data_t channel_options = {
 	.source = SOURCE_DOWNLOADER,
 	.debug = false,
 	.retries = DL_DEFAULT_RETRIES,
-	.low_speed_timeout = DL_LOWSPEED_TIME
+	.low_speed_timeout = DL_LOWSPEED_TIME,
+	.headers_to_send = NULL,
+	.max_download_speed = 0, /* Unlimited download speed is default. */
+	.noipc = false,
+	.range = NULL,
+	.headers = NULL,
 };
 
 int start_download(const char *fname, int argc, char *argv[])
@@ -145,10 +150,9 @@ int start_download(const char *fname, int argc, char *argv[])
 	RECOVERY_STATUS result = download_from_url(&channel_options);
 	if (result != FAILURE) {
 		ipc_message msg;
-		if (ipc_postupdate(&msg) != 0) {
+		msg.data.procmsg.len = 0;
+		if (ipc_postupdate(&msg) != 0 || msg.type != ACK) {
 			result = FAILURE;
-		} else {
-			result = msg.type == ACK ? result : FAILURE;
 		}
 	}
 
@@ -159,5 +163,5 @@ int start_download(const char *fname, int argc, char *argv[])
 		free(channel_options.auth);
 	}
 
-	exit(result == SUCCESS ? EXIT_SUCCESS : result);
+	exit(result == SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE);
 }

@@ -52,10 +52,13 @@ static struct option long_options[] = {
     {"cache", required_argument, NULL, '2'},
     {"initial-report-resend-period", required_argument, NULL, 'm'},
 	{"connection-timeout", required_argument, NULL, 's'},
+	{"custom-http-header", required_argument, NULL, 'a'},
+	{"max-download-speed", required_argument, NULL, 'l'},
     {NULL, 0, NULL, 0}};
 
 static unsigned short mandatory_argument_count = 0;
 static pthread_mutex_t notifylock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t ipc_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * See hawkBit's API for an explanation
@@ -106,7 +109,7 @@ server_send_deployment_reply(channel_t *channel,
 			     const int job_cnt_cur, const char *finished,
 			     const char *execution_status, int numdetails, const char *details[]);
 server_op_res_t server_send_cancel_reply(channel_t *channel, const int action_id);
-static int get_target_data_length(void);
+static int get_target_data_length(bool locked);
 
 server_hawkbit_t server_hawkbit = {.url = NULL,
 				   .polling_interval = CHANNEL_DEFAULT_POLLING_INTERVAL,
@@ -132,7 +135,13 @@ static channel_data_t channel_data_defaults = {.debug = false,
 					       .nocheckanswer = false,
 					       .nofollow = false,
 					       .strictssl = true,
-						   .connection_timeout = 0
+					       .max_download_speed = 0, // No download speed limit is default.
+					       .noipc = false,
+					       .range = NULL,
+					       .connection_timeout = 0,
+					       .headers = NULL,
+					       .headers_to_send = NULL,
+					       .received_headers = NULL
 						};
 
 static struct timeval server_time;
@@ -149,7 +158,7 @@ unsigned int server_get_polling_interval(void);
 /*
  * Just called once to setup the tokens
  */
-static inline void server_hakwbit_settoken(const char *type, const char *token)
+static inline void server_hawkbit_settoken(const char *type, const char *token)
 {
 	char *tokens_header = NULL;
 	if (!token)
@@ -516,13 +525,23 @@ server_op_res_t server_set_config_data(json_object *json_root)
 	tmp = json_get_data_url(json_root, "configData");
 
 	if (tmp != NULL) {
+		pthread_mutex_lock(&ipc_lock);
 		if (server_hawkbit.configData_url)
 			free(server_hawkbit.configData_url);
 		server_hawkbit.configData_url = tmp;
-		server_hawkbit.has_to_send_configData = (get_target_data_length() > 0) ? true : false;
+		server_hawkbit.has_to_send_configData = (get_target_data_length(true) > 0) ? true : false;
 		TRACE("ConfigData: %s", server_hawkbit.configData_url);
+		pthread_mutex_unlock(&ipc_lock);
 	}
 	return SERVER_OK;
+}
+
+static void report_server_status(int server_status)
+{
+	pthread_mutex_lock(&ipc_lock);
+	server_hawkbit.server_status = server_status;
+	server_hawkbit.server_status_time = time(NULL);
+	pthread_mutex_unlock(&ipc_lock);
 }
 
 static server_op_res_t server_get_device_info(channel_t *channel, channel_data_t *channel_data)
@@ -543,7 +562,11 @@ static server_op_res_t server_get_device_info(channel_t *channel, channel_data_t
 		result = SERVER_EINIT;
 		goto cleanup;
 	}
-	if ((result = map_channel_retcode(channel->get(channel, (void *)channel_data))) !=
+
+	channel_op_res_t ch_response = channel->get(channel, (void *)channel_data);
+
+	report_server_status(ch_response);
+	if ((result = map_channel_retcode(ch_response)) !=
 	    SERVER_OK) {
 		goto cleanup;
 	}
@@ -646,12 +669,15 @@ cleanup:
 	return result;
 }
 
-static int server_check_during_dwl(void)
+static size_t server_check_during_dwl(char  __attribute__ ((__unused__)) *streamdata,
+                                      size_t size,
+                                      size_t nmemb,
+                                      void  __attribute__ ((__unused__)) *data)
 {
 	struct timeval now;
 	channel_data_t channel_data = channel_data_defaults;
 	int action_id;
-	int ret = 0;
+	int ret = size * nmemb;
 	const char *update_action;
 
 	server_get_current_time(&now);
@@ -663,7 +689,7 @@ static int server_check_during_dwl(void)
 	 * was requested
 	 */
 	if ((now.tv_sec - server_time.tv_sec) < ((int)server_get_polling_interval()))
-		return 0;
+		return ret;
 
 	/* Update current server time */
 	server_time = now;
@@ -673,14 +699,17 @@ static int server_check_during_dwl(void)
 	 * a connection parallel to the download
 	 */
 	channel_t *channel = channel_new();
+	if (!channel)
+		return ret;
 
 	if (channel->open(channel, &channel_data_defaults) != CHANNEL_OK) {
 		/*
 		 * it is not possible to check for a cancelUpdate,
 		 * go on downloading
 		 */
+		channel->close(channel);
 		free(channel);
-		return 0;
+		return ret;
 	}
 
 	/*
@@ -691,13 +720,13 @@ static int server_check_during_dwl(void)
 	if (result == SERVER_UPDATE_CANCELED) {
 		/* Mark that an update was cancelled by the server */
 		server_hawkbit.cancelDuringUpdate = true;
-		ret = -1;
+		ret = 0;
 	}
 	update_action = json_get_deployment_update_action(channel_data.json_reply);
 
 	/* if the deployment is skipped then stop downloading */
 	if (update_action == deployment_update_action.skip)
-		ret = -1;
+		ret = 0;
 
 	check_action_changed(action_id, update_action);
 
@@ -927,7 +956,11 @@ static void *process_notification_thread(void *data)
 	 * used to download the SWU
 	 */
 	channel_t *channel = channel_new();
+	if (!channel)
+		return NULL;
+
 	if (channel->open(channel, &channel_data) != CHANNEL_OK) {
+		channel->close(channel);
 		free(channel);
 		return NULL;
 	}
@@ -1141,7 +1174,7 @@ server_op_res_t server_process_update_artifact(int action_id,
 			goto cleanup_loop;
 		}
 
-		channel_data.checkdwl = server_check_during_dwl;
+		channel_data.dwlwrdata = server_check_during_dwl;
 
 		/*
 		 * There is no authorizytion token when file is loaded, because SWU
@@ -1451,17 +1484,21 @@ cleanup:
 	return result;
 }
 
-int get_target_data_length(void)
+int get_target_data_length(bool locked)
 {
 	int len = 0;
 	struct dict_entry *entry;
 
+	if (!locked)
+		pthread_mutex_lock(&ipc_lock);
 	LIST_FOREACH(entry, &server_hawkbit.configdata, next) {
 		char *key = dict_entry_get_key(entry);
 		char *value = dict_entry_get_value(entry);
 
 		len += strlen(key) + strlen(value) + strlen (" : ") + 6;
 	}
+	if (!locked)
+		pthread_mutex_unlock(&ipc_lock);
 
 	return len;
 }
@@ -1477,7 +1514,7 @@ server_op_res_t server_send_target_data(void)
 	char *url = NULL;
 
 	assert(channel != NULL);
-	len = get_target_data_length();
+	len = get_target_data_length(false);
 
 	if (!len) {
 		server_hawkbit.has_to_send_configData = false;
@@ -1496,6 +1533,7 @@ server_op_res_t server_send_target_data(void)
 	);
 
 	char *keyvalue = NULL;
+	pthread_mutex_lock(&ipc_lock);
 	LIST_FOREACH(entry, &server_hawkbit.configdata, next) {
 		char *key = dict_entry_get_key(entry);
 		char *value = dict_entry_get_value(entry);
@@ -1507,6 +1545,7 @@ server_op_res_t server_send_target_data(void)
 				value)) {
 			ERROR("hawkBit server reply cannot be sent because of OOM.");
 			result = SERVER_EINIT;
+			pthread_mutex_unlock(&ipc_lock);
 			goto cleanup;
 		}
 		first = false;
@@ -1515,6 +1554,7 @@ server_op_res_t server_send_target_data(void)
 		free(keyvalue);
 
 	}
+	pthread_mutex_unlock(&ipc_lock);
 
 	TRACE("CONFIGDATA=%s", configData);
 
@@ -1604,9 +1644,13 @@ void server_print_help(void)
 	    "\t  -f, --interface     Set the network interface to connect to hawkBit.\n"
 	    "\t  --disable-token-for-dwl Do not send authentication header when downlloading SWU.\n"
 	    "\t  --cache <file>      Use cache file as starting SWU\n"
-		"\t  -m, --initial-report-resend-period <seconds> Time to wait prior to retry "
-		"sending initial state with '-c' option (default: %ds).\n"
-		"\t  -s, --connection-timeout Set the server connection timeout (default: 300s).\n",
+	    "\t  -m, --initial-report-resend-period <seconds> Time to wait prior to retry "
+	    "sending initial state with '-c' option (default: %ds).\n"
+	    "\t  -s, --connection-timeout Set the server connection timeout (default: 300s).\n"
+	    "\t  -a, --custom-http-header <name> <value> Set custom HTTP header, "
+	    "appended to every HTTP request being sent.\n"
+	    "\t  -n, --max-download-speed <limit>  Set download speed limit.\n"
+	    "\t                                    Example: -n 100k; -n 1M; -n 100; -n 1G\n",
 	    CHANNEL_DEFAULT_POLLING_INTERVAL, CHANNEL_DEFAULT_RESUME_TRIES,
 	    CHANNEL_DEFAULT_RESUME_DELAY,
 	    INITIAL_STATUS_REPORT_WAIT_DELAY);
@@ -1664,7 +1708,9 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 
 	mandatory_argument_count = 0;
 
+	pthread_mutex_lock(&ipc_lock);
 	LIST_INIT(&server_hawkbit.configdata);
+	LIST_INIT(&server_hawkbit.httpheaders);
 
 	server_hawkbit.initial_report_resend_period = INITIAL_STATUS_REPORT_WAIT_DELAY;
 	if (fname) {
@@ -1681,9 +1727,13 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			 */
 			read_module_settings(&handle, "hawkbit", server_hawkbit_settings, NULL);
 			read_module_settings(&handle, "identify", settings_into_dict, &server_hawkbit.configdata);
+
+			read_module_settings(&handle, "custom-http-headers",
+					settings_into_dict, &server_hawkbit.httpheaders);
 		}
 		swupdate_cfg_destroy(&handle);
 	}
+	pthread_mutex_unlock(&ipc_lock);
 
 	if (loglevel >= DEBUGLEVEL) {
 		server_hawkbit.debug = true;
@@ -1693,7 +1743,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	/* reset to optind=1 to parse suricatta's argument vector */
 	optind = 1;
 	opterr = 0;
-	while ((choice = getopt_long(argc, argv, "t:i:c:u:p:xr:y::w:k:g:f:2:m:s:",
+	while ((choice = getopt_long(argc, argv, "t:i:c:u:p:xr:y::w:k:g:f:2:m:s:a:n:",
 				     long_options, NULL)) != -1) {
 		switch (choice) {
 		case 't':
@@ -1716,6 +1766,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			 */
 			update_state = (unsigned int)*optarg;
 			switch (update_state) {
+			case STATE_OK:
 			case STATE_INSTALLED:
 			case STATE_TESTING:
 			case STATE_FAILED:
@@ -1786,6 +1837,19 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			channel_data_defaults.connection_timeout =
 				(unsigned int)strtoul(optarg, NULL, 10);
 			break;
+		case 'a':
+			if (optind >= argc)
+				return SERVER_EINIT;
+
+			if (dict_insert_value(&server_hawkbit.httpheaders,
+						optarg,
+						argv[optind++]) < 0)
+				return SERVER_EINIT;
+			break;
+		case 'n':
+			channel_data_defaults.max_download_speed =
+				(unsigned int)ustrtoull(optarg, NULL, 10);
+			break;
 		/* Ignore not recognized options, they can be already parsed by the caller */
 		case '?':
 			break;
@@ -1803,6 +1867,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 		return SERVER_EINIT;
 	}
 
+	channel_data_defaults.headers_to_send = &server_hawkbit.httpheaders;
+
 	if (channel_curl_init() != CHANNEL_OK)
 		return SERVER_EINIT;
 
@@ -1817,8 +1883,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 				"but just one at a time is supported.\n");
 		exit(EXIT_FAILURE);
 	}
-	server_hakwbit_settoken("TargetToken", server_hawkbit.targettoken);
-	server_hakwbit_settoken("GatewayToken", server_hawkbit.gatewaytoken);
+	server_hawkbit_settoken("TargetToken", server_hawkbit.targettoken);
+	server_hawkbit_settoken("GatewayToken", server_hawkbit.gatewaytoken);
 
 	/*
 	 * Allocate a channel to communicate with the server
@@ -1828,6 +1894,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 		return SERVER_EINIT;
 
 	if (server_hawkbit.channel->open(server_hawkbit.channel, &channel_data_defaults) != CHANNEL_OK) {
+		(void)server_hawkbit.channel->close(server_hawkbit.channel);
+		free(server_hawkbit.channel);
 		return SERVER_EINIT;
 	}
 	/* If an update was performed, report its status to the hawkBit server
@@ -1841,6 +1909,13 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	 * Prepare default values
 	 */
 	server_hawkbit.has_to_send_configData = true;
+
+	/*
+	 * The following loop might block for a long time, if server does
+	 * not respond immediately. Therefore, report pending request on
+	 * server status IPC.
+	 */
+	report_server_status(CHANNEL_REQUEST_PENDING);
 
 	/*
 	 * If in WAIT state, the updated was finished
@@ -1860,6 +1935,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 server_op_res_t server_stop(void)
 {
 	(void)server_hawkbit.channel->close(server_hawkbit.channel);
+	free(server_hawkbit.channel);
 	return SERVER_OK;
 }
 
@@ -2006,6 +2082,7 @@ static server_op_res_t server_configuration_ipc(ipc_message *msg)
 
 	json_data = json_get_path_key(
 	    json_root, (const char *[]){"polling", NULL});
+	pthread_mutex_lock(&ipc_lock);
 	if (json_data) {
 		polling = json_object_get_int(json_data);
 		if (polling > 0) {
@@ -2023,6 +2100,25 @@ static server_op_res_t server_configuration_ipc(ipc_message *msg)
 		server_hawkbit.has_to_send_configData = true;
 	}
 
+	pthread_mutex_unlock(&ipc_lock);
+	return SERVER_OK;
+}
+
+static server_op_res_t server_status_ipc(ipc_message *msg)
+{
+	struct timeval tv = {
+		.tv_sec = server_hawkbit.server_status_time,
+		.tv_usec = 0
+	};
+
+	pthread_mutex_lock(&ipc_lock);
+	sprintf(msg->data.procmsg.buf,
+		"{\"server\":{\"status\":%d,\"time\":\"%s\"}}",
+		server_hawkbit.server_status,
+		swupdate_time_iso8601(&tv));
+	msg->data.procmsg.len = strlen(msg->data.procmsg.buf);
+	pthread_mutex_unlock(&ipc_lock);
+
 	return SERVER_OK;
 }
 
@@ -2036,6 +2132,9 @@ server_op_res_t server_ipc(ipc_message *msg)
 		break;
 	case CMD_CONFIG:
 		result = server_configuration_ipc(msg);
+		break;
+	case CMD_GET_STATUS:
+		result = server_status_ipc(msg);
 		break;
 	default:
 		result = SERVER_EERR;

@@ -41,6 +41,7 @@
 #include "network_ipc.h"
 #include "sslapi.h"
 #include "suricatta/suricatta.h"
+#include "delta_process.h"
 #include "progress.h"
 #include "parselib.h"
 #include "swupdate_settings.h"
@@ -60,6 +61,9 @@ static pthread_t network_daemon;
 /* Tree derived from the configuration file */
 static struct swupdate_cfg swcfg;
 
+int loglevel = ERRORLEVEL;
+int exit_code = EXIT_SUCCESS;
+
 #ifdef CONFIG_MTD
 /* Global MTD configuration */
 static struct flash_description flashdesc;
@@ -70,22 +74,28 @@ struct flash_description *get_flash_info(void) {
 #endif
 
 static struct option long_options[] = {
-	{"verbose", no_argument, NULL, 'v'},
-	{"version", no_argument, NULL, '0'},
-	{"image", required_argument, NULL, 'i'},
+#ifdef CONFIG_RECOVERY_UI
+	{"gui", no_argument, NULL, 'g'},
+#endif
 	{"delete", no_argument, NULL, 'D'},
-	{"file", required_argument, NULL, 'f'},
-	{"loglevel", required_argument, NULL, 'l'},
-	{"syslog", no_argument, NULL, 'L' },
-	{"select", required_argument, NULL, 'e'},
+	{"update", no_argument, NULL, '5'},
+	{"reboot", no_argument, NULL, '6'},
 	{"accepted-select", required_argument, NULL, 'q'},
-	{"output", required_argument, NULL, 'o'},
+#ifdef CONFIG_UBIATTACH
+	{"blacklist", required_argument, NULL, 'b'},
+#endif
+	{"check", no_argument, NULL, 'c'},
+#ifdef CONFIG_DOWNLOAD
+	{"download", required_argument, NULL, 'd'},
+#endif
 	{"dry-run", no_argument, NULL, 'n'},
-	{"no-downgrading", required_argument, NULL, 'N'},
-	{"no-reinstalling", required_argument, NULL, 'R'},
-	{"max-version", required_argument, NULL, '3'},
-	{"no-transaction-marker", no_argument, NULL, 'M'},
-	{"no-state-marker", no_argument, NULL, 'm'},
+	{"file", required_argument, NULL, 'f'},
+	{"get-root", no_argument, NULL, 'g'},
+	{"help", no_argument, NULL, 'h'},
+#ifdef CONFIG_HW_COMPATIBILITY
+	{"hwrevision", required_argument, NULL, 'H'},
+#endif
+	{"image", required_argument, NULL, 'i'},
 #ifdef CONFIG_SIGNED_IMAGES
 	{"key", required_argument, NULL, 'k'},
 	{"ca-path", required_argument, NULL, 'k'},
@@ -95,34 +105,28 @@ static struct option long_options[] = {
 #ifdef CONFIG_ENCRYPTED_IMAGES
 	{"key-aes", required_argument, NULL, 'K'},
 #endif
-#ifdef CONFIG_UBIATTACH
-	{"blacklist", required_argument, NULL, 'b'},
-#endif
-	{"help", no_argument, NULL, 'h'},
-#ifdef CONFIG_HW_COMPATIBILITY
-	{"hwrevision", required_argument, NULL, 'H'},
-#endif
-#ifdef CONFIG_DOWNLOAD
-	{"download", required_argument, NULL, 'd'},
-#endif
+	{"loglevel", required_argument, NULL, 'l'},
+	{"max-version", required_argument, NULL, '3'},
+	{"no-downgrading", required_argument, NULL, 'N'},
+	{"no-reinstalling", required_argument, NULL, 'R'},
+	{"no-state-marker", no_argument, NULL, 'm'},
+	{"no-transaction-marker", no_argument, NULL, 'M'},
+	{"output", required_argument, NULL, 'o'},
+	{"preupdate", required_argument, NULL, 'P'},
+	{"postupdate", required_argument, NULL, 'p'},
+	{"select", required_argument, NULL, 'e'},
 #ifdef CONFIG_SURICATTA
 	{"suricatta", required_argument, NULL, 'u'},
 #endif
+	{"syslog", no_argument, NULL, 'L' },
+	{"verbose", no_argument, NULL, 'v'},
+	{"version", no_argument, NULL, '0'},
 #ifdef CONFIG_WEBSERVER
 	{"webserver", required_argument, NULL, 'w'},
 #endif
-#ifdef CONFIG_RECOVERY_UI
-	{"gui", no_argument, NULL, 'g'},
-#endif
-	{"update", no_argument, NULL, '5'},
-	{"reboot", no_argument, NULL, '6'},
-	{"check", no_argument, NULL, 'c'},
-	{"postupdate", required_argument, NULL, 'p'},
-	{"preupdate", required_argument, NULL, 'P'},
+	{"bootloader", required_argument, NULL, 'B'},
 	{NULL, 0, NULL, 0}
 };
-
-int loglevel = ERRORLEVEL;
 
 static void usage(char *programname)
 {
@@ -134,11 +138,12 @@ static void usage(char *programname)
 #ifdef CONFIG_UBIATTACH
 		" -b, --blacklist <list of mtd>  : MTDs that must not be scanned for UBI\n"
 #endif
+		" -B, --bootloader               : bootloader interface (default: " PREPROCVALUE(BOOTLOADER_DEFAULT) ")\n"
 		" -p, --postupdate               : execute post-update command\n"
 		" -P, --preupdate                : execute pre-update command\n"
 		" -e, --select <software>,<mode> : Select software images set and source\n"
 		"                                  Ex.: stable,main\n"
-		" --accepted-select\n"
+		" -q, --accepted-select\n"
 		"            <software>,<mode>   : List for software images set and source\n"
 		"                                  that are accepted via IPC\n"
 		"                                  Ex.: stable,main\n"
@@ -201,6 +206,18 @@ struct swupdate_cfg *get_swupdate_cfg(void) {
 }
 
 static void get_args(int *argc, char ***argv) {
+	// set default bootloader before using it
+	if (!get_bootloader()) {
+		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
+			ERROR("Default bootloader interface '" PREPROCVALUE(
+				BOOTLOADER_DEFAULT) "' couldn't be loaded.");
+			INFO("Check that the bootloader interface shared library is present.");
+			INFO("Or chose another bootloader interface by supplying -B <loader>.");
+			exit(EXIT_FAILURE);
+		}
+		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
+	}
+
     char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
 
     if (*argc <= 1 && command != NULL) {
@@ -314,6 +331,15 @@ static int read_globals_settings(void *elem, void *data)
 	char tmp[SWUPDATE_GENERAL_STRING_SIZE] = "";
 	struct swupdate_cfg *sw = (struct swupdate_cfg *)data;
 
+	GET_FIELD_STRING(LIBCFG_PARSER, elem,
+				"bootloader", tmp);
+	if (tmp[0] != '\0') {
+		if (set_bootloader(tmp) != 0) {
+			ERROR("Bootloader interface '%s' could not be initialized.", tmp);
+			exit(EXIT_FAILURE);
+		}
+		tmp[0] = '\0';
+	}
 	GET_FIELD_STRING(LIBCFG_PARSER, elem,
 				"public-key-file", sw->publickeyfname);
 	GET_FIELD_STRING(LIBCFG_PARSER, elem,
@@ -470,7 +496,7 @@ int main(int argc, char **argv)
 #endif
 	memset(main_options, 0, sizeof(main_options));
 	memset(image_url, 0, sizeof(image_url));
-	strcpy(main_options, "vhni:e:q:l:Lcf:p:P:o:N:R:Mm");
+	strcpy(main_options, "vhni:e:Gq:l:Lcf:p:P:o:N:R:MmB:");
 #ifdef CONFIG_MTD
 	strcat(main_options, "b:");
 #endif
@@ -532,8 +558,17 @@ int main(int argc, char **argv)
 	while ((c = getopt_long(argc, argv, main_options,
 				long_options, NULL)) != EOF) {
 		switch (c) {
+		char *root;
 		case 'f':
 			cfgfname = sdup(optarg);
+			break;
+		case 'G':
+			root = get_root_device();
+			if (root) {
+				printf("%s\n", root);
+				free(root);
+			}
+			exit(EXIT_SUCCESS);
 			break;
 		case 'l':
 			loglevel = strtoul(optarg, NULL, 10);
@@ -628,6 +663,13 @@ int main(int argc, char **argv)
 			break;
 		case 'o':
 			strlcpy(swcfg.output, optarg, sizeof(swcfg.output));
+			break;
+		case 'B':
+			if (set_bootloader(optarg) != 0) {
+				ERROR("Bootloader interface '%s' could not be initialized.", optarg);
+				print_registered_bootloaders();
+				exit(EXIT_FAILURE);
+			}
 			break;
 		case 'l':
 			loglevel = strtoul(optarg, NULL, 10);
@@ -819,6 +861,20 @@ int main(int argc, char **argv)
 	printf("Licensed under GPLv2. See source distribution for detailed "
 		"copyright notices.\n\n");
 
+	print_registered_bootloaders();
+	if (!get_bootloader()) {
+		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
+			ERROR("Default bootloader interface '" PREPROCVALUE(
+			    BOOTLOADER_DEFAULT) "' couldn't be loaded.");
+			INFO("Check that the bootloader interface shared library is present.");
+			INFO("Or chose another bootloader interface by supplying -B <loader>.");
+			exit(EXIT_FAILURE);
+		}
+		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
+	} else {
+		INFO("Using bootloader interface: %s", get_bootloader());
+	}
+
 	/*
 	 * Install a child handler to check if a subprocess
 	 * dies
@@ -928,6 +984,17 @@ int main(int argc, char **argv)
 		freeargs(dwlav);
 	}
 #endif
+#if defined(CONFIG_DELTA)
+	{
+		uid_t uid;
+		gid_t gid;
+		read_settings_user_id(&handle, "download", &uid, &gid);
+		start_subprocess(SOURCE_CHUNKS_DOWNLOADER, "chunks_downloader", uid, gid,
+				cfgfname, 0, NULL,
+				start_delta_downloader);
+	}
+#endif
+
 
 	/*
 	 * Start all processes added in the config file
@@ -989,5 +1056,5 @@ int main(int argc, char **argv)
 	if (!opt_c && !opt_i)
 		pthread_join(network_daemon, NULL);
 
-	return result;
+	return exit_code;
 }
