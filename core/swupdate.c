@@ -843,7 +843,11 @@ int main(int argc, char **argv)
 
 	if(opt_updt){
 		/* Set update mode to enter update/recovery mode. */
-		set_update_mode(opt_i == 1 ? fname : NULL, opt_D, opt_r, opt_g, opt_w==1);
+		char collections[256]={0};
+		if (opt_e == 1)		
+			sprintf(collections,"--select=%s",software_select);		                   
+		
+		set_update_mode(opt_i == 1 ? fname : NULL, opt_D, opt_r, opt_g, opt_w==1 , collections);
 		exit(0);
 	}
 

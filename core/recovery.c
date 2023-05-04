@@ -37,27 +37,27 @@ enum {
 
 static struct installer inst;
 
-void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled){
+void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled ,char *collections){
 	char commond[1024] = {0};
 	const char* swupdatebin = "/usr/bin/swupdate";
 	char * web_args= "--document-root=/www";
 
 	if(image != NULL){
 		if(gui_enabled && is_delete) {
-			sprintf(commond, "%s\n-g\n-D\n--image=%s\n", swupdatebin, image);
+			sprintf(commond, "%s\n-g\n-D\n%s\n--image=%s\n", swupdatebin,collections,image);
 		} else if(gui_enabled && !is_delete) {
-			sprintf(commond, "%s\n-g\n--image=%s\n", swupdatebin, image);
+			sprintf(commond, "%s\n-g\n%s\n--image=%s\n", swupdatebin,collections,image);
 		} else if(!gui_enabled && is_delete) {
-			sprintf(commond, "%s\n-D\n--image=%s\n", swupdatebin, image);
+			sprintf(commond, "%s\n-D\n%s\n--image=%s\n", swupdatebin,collections,image);
 		} else {
-			sprintf(commond, "%s\n--image=%s\n", swupdatebin, image);
+			sprintf(commond, "%s\n%s\n--image=%s\n", swupdatebin,collections, image);
 		}
 	}else{
 		if(web_enabled){
 			if(gui_enabled)
-				sprintf(commond, "%s\n-g\n--webserver=%s\n", swupdatebin, web_args);
+				sprintf(commond, "%s\n-g\n%s\n--webserver=%s\n", swupdatebin,collections, web_args);
 			else
-				sprintf(commond, "%s\n--webserver=%s\n", swupdatebin, web_args);
+				sprintf(commond, "%s\n%s\n--webserver=%s\n", swupdatebin,collections,web_args);
 		}
 	}
 
