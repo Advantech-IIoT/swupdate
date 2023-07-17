@@ -17,6 +17,7 @@
 
 #define BOOTVAR_TRANSSTATUS "recovery_status"
 #define BOOTVAR_TRANSACTION "recovery_command"
+#define BOOTVAR_FACSTATUS "factory_reset_mode"
 
 /*
  * swupdate uses SHA256 hashes
