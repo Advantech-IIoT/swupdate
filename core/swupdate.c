@@ -467,6 +467,7 @@ int main(int argc, char **argv)
 	bool opt_r = false;
 	int opt_w = 0;
 	int opt_updt = 0;
+	int opt_N = 0;
 	bool opt_g = false;
 	char image_url[MAX_URL];
 	char main_options[256];
@@ -714,6 +715,7 @@ int main(int argc, char **argv)
 			swcfg.no_downgrading = true;
 			strlcpy(swcfg.minimum_version, optarg,
 				sizeof(swcfg.minimum_version));
+			opt_N = 1 ;
 			break;
 		case 'R':
 			swcfg.no_reinstalling = true;
@@ -840,13 +842,14 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 #endif
-
 	if(opt_updt){
 		/* Set update mode to enter update/recovery mode. */
 		char collections[256]={0};
 		if (opt_e == 1)		
-			sprintf(collections,"--select=%s",software_select);		                   
-		
+			sprintf(collections,"--select=%s ",software_select);		                   
+		if ( opt_N == 1)
+			sprintf(collections,"--no-downgrading=%s ",swcfg.minimum_version);	
+
 		set_update_mode(opt_i == 1 ? fname : NULL, opt_D, opt_r, opt_g, opt_w==1 , collections);
 		exit(0);
 	}
