@@ -282,6 +282,7 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 			bootloader_env_unset(BOOTVAR_TRANSSTATUS);
 			bootloader_env_unset(BOOTVAR_TRANSACTION);
 			bootloader_env_unset(BOOTVAR_FACSTATUS);
+			bootloader_env_unset(BOOTVAR_FIRST_LOGIN);
 		}
 		inst.last_error = ERROR_INSTALL_SUCCESS;
 		if (!software->parms.dry_run
