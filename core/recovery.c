@@ -37,6 +37,14 @@ enum {
 
 static struct installer inst;
 
+void unset_recovery_bootloader_env(){
+
+        bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+        bootloader_env_unset(BOOTVAR_TRANSACTION);
+        bootloader_env_unset(BOOTVAR_FACSTATUS);
+        bootloader_env_unset(BOOTVAR_FIRST_LOGIN);
+        bootloader_env_unset(BOOTVAR_BOOTCOUNT);
+}
 void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled ,char *collections){
 	char commond[1024] = {0};
 	const char* swupdatebin = "/usr/bin/swupdate";
@@ -279,10 +287,7 @@ static int do_images_install(int fd, struct swupdate_cfg *software){
 		* that it is not required to start recovery again
 		*/
 		if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-			bootloader_env_unset(BOOTVAR_TRANSSTATUS);
-			bootloader_env_unset(BOOTVAR_TRANSACTION);
-			bootloader_env_unset(BOOTVAR_FACSTATUS);
-			bootloader_env_unset(BOOTVAR_FIRST_LOGIN);
+			unset_recovery_bootloader_env();
 		}
 		inst.last_error = ERROR_INSTALL_SUCCESS;
 		if (!software->parms.dry_run

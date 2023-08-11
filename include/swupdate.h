@@ -19,6 +19,7 @@
 #define BOOTVAR_TRANSACTION "recovery_command"
 #define BOOTVAR_FACSTATUS "factory_reset_mode"
 #define BOOTVAR_FIRST_LOGIN "adv_first_login"
+#define BOOTVAR_BOOTCOUNT "bootcount"
 /*
  * swupdate uses SHA256 hashes
  */
