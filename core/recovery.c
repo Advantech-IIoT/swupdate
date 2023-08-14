@@ -325,7 +325,7 @@ static int do_finish_install(int fd, struct swupdate_cfg *software){
 			char command[4]={0};
 		        char bootcount[4] ={0};	
 			strcpy(command,bootloader_env_get(BOOTVAR_UPGRADDE_AVAILABLE));
-			strcpy(bootcount , bootloader_env_get(BOOTVAR_BOOTCOUNT))
+			strcpy(bootcount , bootloader_env_get(BOOTVAR_BOOTCOUNT));
 			if (command != NULL && 0 == strcmp("1" , command) && atoi(bootcount) >10 )
 			{	
 				//system can not boot successfuly , enter into recovery mode , do not clear 'recovery_status' variable
