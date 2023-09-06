@@ -42,7 +42,6 @@ void unset_recovery_bootloader_env(){
         bootloader_env_unset(BOOTVAR_TRANSSTATUS);
         bootloader_env_unset(BOOTVAR_TRANSACTION);
         bootloader_env_unset(BOOTVAR_FACSTATUS);
-        bootloader_env_unset(BOOTVAR_FIRST_LOGIN);
         bootloader_env_unset(BOOTVAR_BOOTCOUNT);
 }
 void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled ,char *collections){
