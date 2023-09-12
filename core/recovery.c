@@ -38,11 +38,20 @@ enum {
 static struct installer inst;
 
 void unset_recovery_bootloader_env(){
-
-        bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+	char *bootcount;
+        
+	bootloader_env_unset(BOOTVAR_TRANSSTATUS);
         bootloader_env_unset(BOOTVAR_TRANSACTION);
         bootloader_env_unset(BOOTVAR_FACSTATUS);
-        bootloader_env_unset(BOOTVAR_BOOTCOUNT);
+
+	char *bootcount = bootloader_env_get(BOOTVAR_BOOTCOUNT);
+        char *upgrade_available = bootloader_env_get(BOOTVAR_UPGRADDE_AVAILABLE);
+	if ( upgrade_available != NULL && atoi(upgrade_available) == 1 ){
+		if (atoi(bootcount) >= 10 )
+			bootloader_env_unset(BOOTVAR_FIRST_LOGIN);
+	     bootloader_env_unset(BOOTVAR_BOOTCOUNT);	
+	}
+
 }
 void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabled, bool web_enabled ,char *collections){
 	char commond[1024] = {0};
