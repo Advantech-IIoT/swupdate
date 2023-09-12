@@ -38,7 +38,6 @@ enum {
 static struct installer inst;
 
 void unset_recovery_bootloader_env(){
-	char *bootcount;
         
 	bootloader_env_unset(BOOTVAR_TRANSSTATUS);
         bootloader_env_unset(BOOTVAR_TRANSACTION);
