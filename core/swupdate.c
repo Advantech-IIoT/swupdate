@@ -49,6 +49,7 @@
 #include "state.h"
 #include "bootloader.h"
 #include "sdboot.h"
+#include "usbboot.h"
 
 #ifdef CONFIG_SYSTEMD
 #include <systemd/sd-daemon.h>
@@ -80,6 +81,7 @@ static struct option long_options[] = {
 	{"delete", no_argument, NULL, 'D'},
 	{"update", no_argument, NULL, '5'},
 	{"reboot", no_argument, NULL, '6'},
+	{"usb-path", required_argument, NULL, '7'},
 	{"accepted-select", required_argument, NULL, 'q'},
 #ifdef CONFIG_UBIATTACH
 	{"blacklist", required_argument, NULL, 'b'},
@@ -150,6 +152,7 @@ static void usage(char *programname)
 		"                                  it can be set multiple times\n"
 		" --update                       : Enter update/recovery mode\n"
 		" --reboot                       : Reboot system after --update, -i or -w \n"
+                " --usb-path  <filename>         : find recovery file from USB \n" 
 		" -i, --image <filename>         : Software to be installed\n"
 		" -D, --delete                   : After update delete .swu or not\n"
 		" -l, --loglevel <level>         : logging level\n"
@@ -704,6 +707,30 @@ int main(int argc, char **argv)
 		case '6':
 			opt_r = true;
 			break;
+                case '7':
+                        if (opt_i == 1){
+                                fprintf(stdout, "find path from usb . skip "-i" option \n");                                
+                        }
+                        usb_umount(EX_USB_ROOT);
+                        if (usb_mount(EX_USB_ROOT)){
+                                printf("mount %s fail" , EX_USB_ROOT );
+                                exit(EXIT_FAILURE);
+                       }else{
+				opt_i = 1;
+                                if (optarg == NULL){
+                                	printf("lost image path ?\n");
+					exit(EXIT_FAILURE);
+                              	}
+
+                               	strlcpy(fname, EX_USB_ROOT, sizeof(fname));
+                               	strcat(fname, "/");
+                               	strcat(fname, optarg);
+                               	if (!is_usb_image_exits(fname)) {
+                                    fprintf(stdout, "usb file not exist =%s  \n" , fname);
+                                    exit(EXIT_FAILURE);
+                                 }
+                       }
+                       break;
 #ifdef CONFIG_ENCRYPTED_IMAGES
 		case 'K':
 			strlcpy(swcfg.aeskeyfname,
