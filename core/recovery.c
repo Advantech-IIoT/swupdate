@@ -56,23 +56,33 @@ void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabl
 	char commond[1024] = {0};
 	const char* swupdatebin = "/usr/bin/swupdate";
 	char * web_args= "--document-root=/www";
+	char * chsplit ;
+	int grub_loader = 0 ;
+	int ret = 0 ;
 
+        if (access("/sys/firmware/efi", R_OK) == 0){
+		grub_loader=1;	
+            	chsplit=" ";
+	}
+	else
+	    chsplit="\n";
+ 	
 	if(image != NULL){
 		if(gui_enabled && is_delete) {
-			sprintf(commond, "%s\n-g\n-D\n%s\n--image=%s\n", swupdatebin,collections,image);
+			sprintf(commond, "%s%s-g%s-D%s,%s%s--image=%s%s", swupdatebin, chsplit ,chsplit ,chsplit ,chsplit ,collections,image , chsplit );
 		} else if(gui_enabled && !is_delete) {
-			sprintf(commond, "%s\n-g\n%s\n--image=%s\n", swupdatebin,collections,image);
+			sprintf(commond, "%s%s-g%s%s%s--image=%s%s", swupdatebin,chsplit ,chsplit ,collections,chsplit ,image,chsplit);
 		} else if(!gui_enabled && is_delete) {
-			sprintf(commond, "%s\n-D\n%s\n--image=%s\n", swupdatebin,collections,image);
+			sprintf(commond, "%s%s-D%s%s%s--image=%s%s", swupdatebin,chsplit ,chsplit ,collections,chsplit ,image , chsplit );
 		} else {
-			sprintf(commond, "%s\n%s\n--image=%s\n", swupdatebin,collections, image);
+			sprintf(commond, "%s%s%s%s--image=%s%s", swupdatebin,chsplit ,collections, chsplit ,image ,chsplit );
 		}
 	}else{
 		if(web_enabled){
 			if(gui_enabled)
-				sprintf(commond, "%s\n-g\n%s\n--webserver=%s\n", swupdatebin,collections, web_args);
+				sprintf(commond, "%s%s-g%s%s%s--webserver=%s%s", swupdatebin,chsplit ,chsplit ,collections,chsplit , web_args , chsplit );
 			else
-				sprintf(commond, "%s\n%s\n--webserver=%s\n", swupdatebin,collections,web_args);
+				sprintf(commond, "%s%s%s%s--webserver=%s%s", swupdatebin,chsplit ,collections,chsplit ,web_args , chsplit );
 		}
 	}
 
@@ -85,8 +95,13 @@ void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabl
 	printf("[Done!]\r\n");
 
 	if(is_reboot){
-		int ret = system("/bin/systemctl reboot -i");
-		printf("reboot ret:%d\r\n", ret);
+		if (grub_loader == 1 ){
+			ret=system("/usr/sbin/grub-reboot --boot-directory=/boot/efi swupdate") ;
+			if (ret != 0) {
+				printf("grub-reboot fail . strerror:%s\r\n", strerror(errno));
+			}
+		}
+		ret = system("/bin/systemctl reboot -i");			
 		if (ret != 0) {
 			printf("strerror:%s\r\n", strerror(errno));
 		}

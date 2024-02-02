@@ -152,7 +152,7 @@ static void usage(char *programname)
 		"                                  it can be set multiple times\n"
 		" --update                       : Enter update/recovery mode\n"
 		" --reboot                       : Reboot system after --update, -i or -w \n"
-                " --usb-path  <filename>         : find recovery file from USB \n" 
+		" --usb-path  <filename>         : find recovery file from USB \n" 
 		" -i, --image <filename>         : Software to be installed\n"
 		" -D, --delete                   : After update delete .swu or not\n"
 		" -l, --loglevel <level>         : logging level\n"
@@ -210,8 +210,17 @@ struct swupdate_cfg *get_swupdate_cfg(void) {
 
 static void get_args(int *argc, char ***argv) {
 	// set default bootloader before using it
+	int grubloader =  0;
 	if (!get_bootloader()) {
-		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
+		if (access("/sys/firmware/efi", R_OK) == 0) 
+		{
+			if (set_bootloader("grub") != 0){
+				exit(EXIT_FAILURE);
+			}
+			else
+				grubloader = 1;
+
+		}else if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
 			ERROR("Default bootloader interface '" PREPROCVALUE(
 				BOOTLOADER_DEFAULT) "' couldn't be loaded.");
 			INFO("Check that the bootloader interface shared library is present.");
@@ -222,19 +231,25 @@ static void get_args(int *argc, char ***argv) {
 	}
 
     char* command = bootloader_env_get(BOOTVAR_TRANSACTION);
-
     if (*argc <= 1 && command != NULL) {
-        const char *arg = strtok(command, "\n");
+	const char *arg ;
+	if (!grubloader)
+	        arg = strtok(command, "\n");
+	else
+		arg = strtok(command, " ");
         if (arg != NULL && !strcmp(arg, "/usr/bin/swupdate")) {
             *argv = (char **) malloc(sizeof(char *) * 100);
             (*argv)[0] = strdup(arg);
             for (*argc = 1; *argc < 100; ++*argc) {
-                if ((arg = strtok(NULL, "\n")) == NULL) break;
-                (*argv)[*argc] = strdup(arg);
+	       if (!grubloader){
+                  if ((arg = strtok(NULL, "\n")) == NULL) break;
+		}
+	       else{
+	         if ((arg = strtok(NULL, " ")) == NULL) break;
+		}
+                 (*argv)[*argc] = strdup(arg);
             }
-            printf("Got arguments from bootloader env. \n");
         } else if (command[0] != 0 && command[0] != 255) {
-            printf("Bad boot command\n\"%.20s\"\n", command);
         }
     }
 }
@@ -707,30 +722,29 @@ int main(int argc, char **argv)
 		case '6':
 			opt_r = true;
 			break;
-                case '7':
-                        if (opt_i == 1){
-                                fprintf(stdout, "find path from usb . skip "-i" option \n");                                
-                        }
-                        usb_umount(EX_USB_ROOT);
-                        if (usb_mount(EX_USB_ROOT)){
-                                printf("mount %s fail" , EX_USB_ROOT );
-                                exit(EXIT_FAILURE);
-                       }else{
+        case '7':
+        	if (opt_i == 1){
+            	fprintf(stdout, "find path from usb . skip -i option \n");                                
+            }
+            usb_umount(EX_USB_ROOT);
+            if (usb_mount(EX_USB_ROOT)){
+            	printf("mount %s fail" , EX_USB_ROOT );
+                exit(EXIT_FAILURE);
+            }else{
 				opt_i = 1;
-                                if (optarg == NULL){
-                                	printf("lost image path ?\n");
+                if (optarg == NULL){
+                	printf("lost image path ?\n");
 					exit(EXIT_FAILURE);
-                              	}
-
-                               	strlcpy(fname, EX_USB_ROOT, sizeof(fname));
-                               	strcat(fname, "/");
-                               	strcat(fname, optarg);
-                               	if (!is_usb_image_exits(fname)) {
-                                    fprintf(stdout, "usb file not exist =%s  \n" , fname);
-                                    exit(EXIT_FAILURE);
-                                 }
-                       }
-                       break;
+                }
+               	strlcpy(fname, EX_USB_ROOT, sizeof(fname));
+               	strcat(fname, "/");
+               	strcat(fname, optarg);
+               	if (!is_usb_image_exits(fname)) {
+ 	                fprintf(stdout, "usb file not exist =%s  \n" , fname);
+                    exit(EXIT_FAILURE);
+                 }
+           }
+           break;
 #ifdef CONFIG_ENCRYPTED_IMAGES
 		case 'K':
 			strlcpy(swcfg.aeskeyfname,
