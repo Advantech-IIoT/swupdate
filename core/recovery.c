@@ -46,8 +46,6 @@ void unset_recovery_bootloader_env(){
 	char *bootcount = bootloader_env_get(BOOTVAR_BOOTCOUNT);
         char *upgrade_available = bootloader_env_get(BOOTVAR_UPGRADDE_AVAILABLE);
 	if ( upgrade_available != NULL && atoi(upgrade_available) == 1 ){
-		if (atoi(bootcount) >= 10 )
-			bootloader_env_unset(BOOTVAR_FIRST_LOGIN);
 	     bootloader_env_unset(BOOTVAR_BOOTCOUNT);	
 	}
 
