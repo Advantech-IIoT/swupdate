@@ -91,6 +91,10 @@ static int grubenv_open(struct grubenv_t *grubenv)
 
 		key = strtok(entry, "=");
 		value = strtok(NULL, "\n");
+		if (*value == '#'){
+                        printf("###### :end line\n");
+                        break;
+                } 
 		if (value != NULL && key != NULL) {
 			ret = dict_set_value(&grubenv->vars, key, value);
 			if (ret) {
