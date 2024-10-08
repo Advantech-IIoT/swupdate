@@ -22,6 +22,55 @@
 #define VERIFY_UNKNOWN_SIGNER_FLAGS (0)
 #endif
 
+int extract_public_key(const char *cert_file_path, const char *pubkey_file_path) {
+    // Create a BIO to read the certificate
+    BIO *cert_bio = BIO_new_file(cert_file_path, "r");
+    if (!cert_bio) {
+        perror("Unable to open certificate file");
+        return -1;
+    }
+
+    //Read the X.509 certificate from the BIO
+    X509 *cert = PEM_read_bio_X509(cert_bio, NULL, NULL, NULL);
+    BIO_free(cert_bio);
+    if (!cert) {
+        fprintf(stderr, "Error loading certificate\n");
+        return -1;
+    }
+
+    // Extract the public key from the certificate
+    EVP_PKEY *pubkey = X509_get_pubkey(cert);
+    if (!pubkey) {
+        fprintf(stderr, "Error extracting public key\n");
+        X509_free(cert);
+        return -1;
+    }
+    // Write the public key in PEM format
+    BIO *pubkey_bio = BIO_new_file(pubkey_file_path, "w");
+    if (!pubkey_bio) {
+        perror("Unable to open public key file for writing");
+        EVP_PKEY_free(pubkey);
+        X509_free(cert);
+        return -1;
+    }
+
+    if (PEM_write_bio_PUBKEY(pubkey_bio, pubkey) != 1) {
+        fprintf(stderr, "Error writing public key to file\n");
+        BIO_free(pubkey_bio);
+        EVP_PKEY_free(pubkey);
+        X509_free(cert);
+        return -1;
+    }
+
+    // clear all 
+    BIO_free(pubkey_bio);
+    EVP_PKEY_free(pubkey);
+    X509_free(cert);
+
+    printf("Public key extracted successfully to %s\n", pubkey_file_path);
+    return 0;
+}
+
 int check_code_sign(const X509_PURPOSE *xp, const X509 *crt, int ca)
 {
 	X509 *x = (X509 *)crt;

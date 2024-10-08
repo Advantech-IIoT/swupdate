@@ -180,7 +180,7 @@ void swupdate_HASH_cleanup(struct swupdate_digest *dgst);
 int swupdate_verify_file(struct swupdate_digest *dgst, const char *sigfile,
 				const char *file, const char *signer_name);
 int swupdate_HASH_compare(const unsigned char *hash1, const unsigned char *hash2);
-
+int swupdate_RSA_decrypt_file(const char *public_key_path, const char *signature_file_path , char *output_path);
 
 #else
 #define swupdate_dgst_init(sw, keyfile) ( 0 )

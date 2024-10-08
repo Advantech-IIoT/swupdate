@@ -18,6 +18,7 @@ EVP_PKEY *load_pubkey(const char *file);
 #ifdef CONFIG_SIGALG_CMS
 int check_code_sign(const X509_PURPOSE *xp, const X509 *crt, int ca);
 X509_STORE *load_cert_chain(const char *file);
+int extract_public_key(const char *cert_file_path, const char *pubkey_file_path);
 #endif
 
 #endif

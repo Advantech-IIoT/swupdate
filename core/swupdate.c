@@ -886,11 +886,19 @@ int main(int argc, char **argv)
 	if(opt_updt){
 		/* Set update mode to enter update/recovery mode. */
 		char collections[256]={0};
+        char * chsplit="\n" ;
 		if (opt_e == 1)		
-			sprintf(collections,"--select=%s ",software_select);		                   
+			sprintf(collections,"--select=%s%s",software_select ,chsplit);		                   
 		if ( opt_N == 1)
-			sprintf(collections,"--no-downgrading=%s ",swcfg.minimum_version);	
-
+			sprintf(collections,"--no-downgrading=%s%s",swcfg.minimum_version ,chsplit);	
+#ifdef CONFIG_SIGNED_IMAGES
+                if (public_key_mandatory && strlen(swcfg.publickeyfname)) {
+                        sprintf(collections+strlen(collections),"--key=%s%s",swcfg.publickeyfname , chsplit);
+#ifdef CONFIG_ENCRYPTED_IMAGES
+                        sprintf(collections+strlen(collections),"--key-aes=%s" , swcfg.aeskeyfname);
+#endif
+                }
+#endif
 		set_update_mode(opt_i == 1 ? fname : NULL, opt_D, opt_r, opt_g, opt_w==1 , collections);
 		exit(0);
 	}
@@ -940,6 +948,20 @@ int main(int argc, char **argv)
 	 * to decrypt images
 	 */
 	if (strlen(swcfg.aeskeyfname)) {
+        char pubkey_fname[32]="/etc/swu_pubkey.pem";
+        char aeskey_fname[32]="/etc/aes_key";
+        if (strlen(swcfg.publickeyfname)) {
+            if (0 != extract_public_key(swcfg.publickeyfname ,pubkey_fname)){
+                fprintf(stderr,"Error: Public key extracted from %s failed \n" , swcfg.publickeyfname);
+                exit(EXIT_FAILURE);
+            }
+            if (swupdate_RSA_decrypt_file(pubkey_fname, swcfg.aeskeyfname ,aeskey_fname) != 0) {
+                fprintf(stderr, "Verification %s failed.\n" , swcfg.aeskeyfname);
+                exit(EXIT_FAILURE); // Verification failed
+            }
+            memset(swcfg.aeskeyfname,0 ,strlen(swcfg.aeskeyfname));
+            strncpy(swcfg.aeskeyfname , aeskey_fname ,strlen(aeskey_fname));
+        }
 		if (load_decryption_key(swcfg.aeskeyfname)) {
 			fprintf(stderr,
 				"Error: Key file does not contain a valid AES key.\n");
