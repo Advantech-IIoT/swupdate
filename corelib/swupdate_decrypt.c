@@ -59,7 +59,7 @@ int swupdate_RSA_decrypt_file(const char *public_key_path, const char *signature
     if (decrypted_data) free(decrypted_data);
     if (rsa_public_key) RSA_free(rsa_public_key);
     return  0;
-}                                                                                                                                                                                          62,28         13%
+}
 
 struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, char keylen, unsigned char *iv)
 {
