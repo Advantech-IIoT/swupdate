@@ -886,7 +886,13 @@ int main(int argc, char **argv)
 	if(opt_updt){
 		/* Set update mode to enter update/recovery mode. */
 		char collections[256]={0};
-        char * chsplit="\n" ;
+        const char * chsplit ;
+        if (access("/sys/firmware/efi", R_OK) == 0){
+            chsplit=" ";
+        }else{
+            chsplit="\n";
+        }
+
 		if (opt_e == 1)		
 			sprintf(collections,"--select=%s%s",software_select ,chsplit);		                   
 		if ( opt_N == 1)
@@ -895,7 +901,7 @@ int main(int argc, char **argv)
                 if (public_key_mandatory && strlen(swcfg.publickeyfname)) {
                         sprintf(collections+strlen(collections),"--key=%s%s",swcfg.publickeyfname , chsplit);
 #ifdef CONFIG_ENCRYPTED_IMAGES
-                        sprintf(collections+strlen(collections),"--key-aes=%s" , swcfg.aeskeyfname);
+                        sprintf(collections+strlen(collections),"--key-aes=%s%s" , swcfg.aeskeyfname , chsplit);
 #endif
                 }
 #endif
@@ -910,6 +916,7 @@ int main(int argc, char **argv)
 			fprintf(stderr,
 				 "Error: Crypto cannot be initialized.\n");
 			exit(EXIT_FAILURE);
+            
 		}
 	}
 

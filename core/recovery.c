@@ -58,12 +58,16 @@ void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabl
 	int grub_loader = 0 ;
 	int ret = 0 ;
 
-        if (access("/sys/firmware/efi", R_OK) == 0){
+    if (access("/sys/firmware/efi", R_OK) == 0){
 		grub_loader=1;	
-            	chsplit=" ";
+       	chsplit=" ";
+        bootloader_env_unset(BOOTVAR_TRANSSTATUS);
+        bootloader_env_unset(BOOTVAR_TRANSACTION);
+
 	}
-	else
+	else{
 	    chsplit="\n";
+    }
  	
 	if(image != NULL){
 		if(gui_enabled && is_delete) {
