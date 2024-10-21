@@ -862,6 +862,7 @@ int main(int argc, char **argv)
 	if (public_key_mandatory && !strlen(swcfg.publickeyfname)) {
 		fprintf(stderr,
 			 "Error: SWUpdate is built for signed images, provide a public key file.\n");
+        reboot_before_install_image("Error: SWUpdate is built for signed images, provide a public key file.");
 		exit(EXIT_FAILURE);
 	}
 
@@ -915,7 +916,8 @@ int main(int argc, char **argv)
 		if (swupdate_dgst_init(&swcfg, swcfg.publickeyfname)) {
 			fprintf(stderr,
 				 "Error: Crypto cannot be initialized.\n");
-			exit(EXIT_FAILURE);
+            reboot_before_install_image("Error: SWUpdate is built for signed images, provide a public key file.");
+            exit(EXIT_FAILURE);
             
 		}
 	}
@@ -960,10 +962,12 @@ int main(int argc, char **argv)
         if (strlen(swcfg.publickeyfname)) {
             if (0 != extract_public_key(swcfg.publickeyfname ,pubkey_fname)){
                 fprintf(stderr,"Error: Public key extracted from %s failed \n" , swcfg.publickeyfname);
+                reboot_before_install_image("Error: Public key extracted failed");
                 exit(EXIT_FAILURE);
             }
             if (swupdate_RSA_decrypt_file(pubkey_fname, swcfg.aeskeyfname ,aeskey_fname) != 0) {
                 fprintf(stderr, "Verification %s failed.\n" , swcfg.aeskeyfname);
+                reboot_before_install_image("Error: Verification failed ,AES KEY extracted failed");
                 exit(EXIT_FAILURE); // Verification failed
             }
             memset(swcfg.aeskeyfname,0 ,strlen(swcfg.aeskeyfname));
@@ -972,6 +976,7 @@ int main(int argc, char **argv)
 		if (load_decryption_key(swcfg.aeskeyfname)) {
 			fprintf(stderr,
 				"Error: Key file does not contain a valid AES key.\n");
+            reboot_before_install_image("Error: Key file does not contain a valid AES key");
 			exit(EXIT_FAILURE);
 		}
 	}

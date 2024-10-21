@@ -109,6 +109,19 @@ void set_update_mode(char *image, bool is_delete, bool is_reboot, bool gui_enabl
 		}
 	}
 }
+
+void reboot_before_install_image(const char* text){
+
+    int ret = 0; 
+    notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, text);
+    save_update_result(FAILURE,text);
+    unset_recovery_bootloader_env();
+    ret = system("/sbin/reboot -f");
+    if (ret != 0) {
+        printf("strerror:%s\r\n", strerror(errno));
+    }
+}
+
 static struct img_type* find_image_type(struct swupdate_cfg *software, struct filehdr *pfdh){
 	struct img_type *img;
 	struct imglist *list[] = {&software->images,
@@ -363,7 +376,7 @@ static int do_finish_install(int fd, struct swupdate_cfg *software){
 	//report the result.
 	swupdate_progress_end(inst.last_install);
 	//save the result
-	save_update_result(inst.last_install);
+	save_update_result(inst.last_install,NULL);
 	//run post-up command.
 	if (software) {
 		if (software->parms.dry_run) {

@@ -34,41 +34,51 @@
 	} \
 } while(0)
 
-int save_update_result(RECOVERY_STATUS status) 
+int save_update_result(RECOVERY_STATUS status, const char* additional_text) 
 {
-	int fd = -1;
-	char* result_file = NULL;
-	char text[128] ;
-	memset(text, 0, sizeof(text));
+    int fd = -1;
+    char* result_file = NULL;
+    char text[128];
+    memset(text, 0, sizeof(text));
 
-	if (asprintf(&result_file, "%s%s", get_tmpdir(), RST_FILE_NAME) == ENOMEM_ASPRINTF) {
-		ERROR("Path too long: %s%s", get_tmpdir(), RST_FILE_NAME);
-		return -1;
-	}
-	
-	fd = open(result_file, O_CREAT | O_WRONLY | O_TRUNC, 0777);
-	if (fd < 0) {
-		ERROR("open %s fail, errno = %d\n", result_file, errno);
-		free(result_file);
-		return -1;
-	}
-	
-	if(status == SUCCESS) {
-		strlcpy(text, "update images success!\n", 127);
-	} else {
-		strlcpy(text, "update images failed!\n", 127);
-	}
+    if (asprintf(&result_file, "%s%s", get_tmpdir(), RST_FILE_NAME) == ENOMEM_ASPRINTF) {
+        ERROR("Path too long: %s%s", get_tmpdir(), RST_FILE_NAME);
+        return -1;
+    }
+    
+    fd = open(result_file, O_CREAT | O_WRONLY | O_TRUNC, 0777);
+    if (fd < 0) {
+        ERROR("open %s fail, errno = %d\n", result_file, errno);
+        free(result_file);
+        return -1;
+    }
 
-	int w_len = write(fd, text, strlen(text));
-	if (w_len <= 0) {
-		ERROR("write %s fail, errno = %d\n", result_file, errno);
-		free(result_file);
-		return -1;
-	}
-	free(result_file);
-	close(fd);
-	
-	return 0;
+    if (status == SUCCESS) {
+        strlcpy(text, "update images success!\n", sizeof(text) - 1);
+    } else {
+        strlcpy(text, "update images failed!\n", sizeof(text) - 1);
+    }
+
+    int w_len = write(fd, text, strlen(text));
+    if (w_len <= 0) {
+        ERROR("write %s fail, errno = %d\n", result_file, errno);
+        free(result_file);
+        return -1;
+    }
+
+    if (additional_text != NULL) {
+        w_len = write(fd, additional_text, strlen(additional_text));
+        if (w_len <= 0) {
+            ERROR("write additional text to %s fail, errno = %d\n", result_file, errno);
+            free(result_file);
+            return -1;
+        }
+    }
+
+    free(result_file);
+    close(fd);
+    
+    return 0;
 }
 
 static int do_save_state(char *key, char* value)
